@@ -1,3 +1,10 @@
+cockpit-sharehub (0.11.0) unstable; urgency=medium
+
+  * Components dashboard: packages, services and configuration checks per
+    feature, with install, start and fix actions.
+
+ -- Andrei Prajina <ancyent@xserv.ro>  Tue, 17 Nov 2026 23:00:00 +0200
+
 cockpit-sharehub (0.10.0) unstable; urgency=medium
 
   * Per-share size limits enforced by the filesystem: ZFS refquota,

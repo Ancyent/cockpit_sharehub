@@ -14,7 +14,16 @@ ShareHub has five tabs: **Overview**, **Shares**, **Users & Groups**, **Settings
 
 - **Setup alerts.** These cover the Samba registry, shares found from other tools, and ProFTPD configuration problems.
 - **Counters.** Number of shares per protocol, local users, Active Directory status, and versions.
-- **Services.** Status of smbd, nmbd, winbind, nfs-server, proftpd, avahi-daemon and wsdd-server, with Start, Stop and Restart.
+- **Components.** One row per feature: SMB, NetBIOS, NFS, FTP, FTPS, macOS discovery, Windows discovery, Active Directory, Previous Versions, size limits and recycle-bin cleanup.
+
+  | Status | Meaning |
+  |---|---|
+  | Ready | Everything it needs is installed, running and configured. |
+  | Needs attention | The feature is in use, but a package is missing, a service is stopped or a check fails. These rows are listed first. |
+  | Check configuration | A configuration check fails on a feature that is not in use yet. |
+  | Not installed | Optional and not installed. |
+
+  **Details** shows packages (installed and available versions), services (with Start, Restart and Stop) and configuration checks. **Install** runs `apt-get install` for the missing packages (only packages ShareHub knows are allowed). **Fix** repairs known problems: enables the Samba registry, adds the ProFTPD include and mod_tls, or starts the cleanup timer.
 - **Firewall.** The ports your protocols need. Opens them in ufw or firewalld when one is active.
 - **Live connections.** SMB sessions (user, client, protocol, encryption, shares in use) with **Disconnect**, NFSv4 clients, and FTP sessions. The view refreshes every 15 seconds.
 

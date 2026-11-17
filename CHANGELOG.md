@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0 - 2026-11-17
+
+- **Components** dashboard on the Overview page (replaces the Services card): for each feature
+  (SMB, NetBIOS, NFS, FTP, FTPS, Bonjour, WS-Discovery, Active Directory, Previous Versions,
+  size limits, recycle-bin cleanup) it shows the required packages with installed and available
+  versions, the services, configuration checks, and whether the feature is in use
+- A feature that is in use but missing a package, has a stopped service or a failing check is
+  marked **Needs attention** and listed first
+- Actions: install missing packages (allow-listed, via apt), start or restart services, and fix
+  known configuration problems (Samba registry, ProFTPD include and mod_tls, cleanup timer)
+
 ## 0.10.0 - 2026-11-17
 
 - Per-share size limits, enforced by the filesystem:

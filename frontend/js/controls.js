@@ -304,21 +304,22 @@
 
     /* ---------------------------------------------------------------- modal + confirm */
 
-    C.modal = function ({ title, body, actions, size }) {
+    C.modal = function ({ title, body, actions, size, persistent }) {
         const titleId = SH.id("dlg");
         const previous = document.activeElement;
         const errorBox = h("div", { class: "modal-error hidden", role: "alert" });
         const dialog = h("div", { class: "modal" + (size ? " modal-" + size : ""), role: "dialog", "aria-modal": "true", "aria-labelledby": titleId },
             h("header", { class: "modal-head" },
                 h("h2", { id: titleId }, title),
-                h("button", { type: "button", class: "icon-btn", "aria-label": "Close", onclick: () => close() }, "×")),
+                persistent ? null : h("button", { type: "button", class: "icon-btn", "aria-label": "Close", onclick: () => close() }, "×")),
             h("div", { class: "modal-body" }, body),
             errorBox,
             h("footer", { class: "modal-foot" }, actions));
         const overlay = h("div", { class: "overlay" }, dialog);
-        overlay.addEventListener("mousedown", ev => { if (ev.target === overlay) close(); });
+        overlay.addEventListener("mousedown", ev => { if (ev.target === overlay && !persistent) close(); });
+        dialog.setAttribute("tabindex", "-1");
         dialog.addEventListener("keydown", ev => {
-            if (ev.key === "Escape") { ev.preventDefault(); close(); }
+            if (ev.key === "Escape") { ev.preventDefault(); if (!persistent) close(); }
             if (ev.key === "Tab") {
                 const items = Array.from(dialog.querySelectorAll("button:not([disabled]), input:not([disabled])")).filter(x => x.offsetParent !== null);
                 if (!items.length) return;

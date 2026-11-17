@@ -44,27 +44,105 @@
             card(st.checks.samba_version.replace(/^Version\s*/, "") || "-", "Samba version", "v" + st.version + " ShareHub"));
     }
 
-    function servicesCard(data) {
-        if (!data.systemd) return C.alert("info", "systemd is not running here.", "Service status is unavailable.");
-        const rows = data.units.filter(u => u.installed).map(u => {
-            const running = u.active === "active";
-            return h("tr", {},
-                h("td", {}, C.dot(u.active), " ", h("span", { class: "strong" }, u.label), h("div", { class: "muted small mono" }, u.unit)),
-                h("td", {}, running ? C.badge("Running", "on") : u.active === "failed" ? C.badge("Failed", "danger") : C.badge("Stopped")),
-                h("td", {}, u.enabled === "enabled" ? "Starts at boot" : h("span", { class: "muted" }, "Manual")),
-                h("td", { class: "col-actions" },
-                    running ? C.button("Restart", () => ctl(u.unit, "restart"), "link") : C.button("Start", () => ctl(u.unit, "enable"), "link"),
-                    running ? C.button("Stop", () => ctl(u.unit, "stop"), "link", { class: "btn btn-link btn-danger-link" }) : null));
-        });
-        const missing = data.units.filter(u => u.installed === false).map(u => u.label);
-        return h("div", {},
-            h("table", { class: "tbl" }, h("thead", {}, h("tr", {}, h("th", {}, "Service"), h("th", {}, "State"), h("th", {}, "Boot"), h("th", { class: "col-actions" }, h("span", { class: "sr-only" }, "Actions")))), h("tbody", {}, rows)),
-            missing.length ? h("p", { class: "muted small pad" }, "Not installed: " + missing.join(", ")) : null);
+    const STATUS = {
+        ok: ["ok", "Ready"],
+        attention: ["danger", "Needs attention"],
+        warning: ["warn", "Check configuration"],
+        absent: ["off", "Not installed"],
+    };
+    const expanded = new Set();
+
+    function summary(f) {
+        const missing = f.packages.filter(g => !g.satisfied).map(g => g.packages.map(p => p.name).join(" or "));
+        const stopped = f.services.filter(s => s.installed && s.active !== "active").map(s => s.unit);
+        const failing = f.checks.filter(c => !c.ok).map(c => c.label);
+        if (missing.length) return (f.in_use ? "In use, but missing: " : "Optional. Needs: ") + missing.join(", ");
+        if (f.in_use && stopped.length) return `In use, but ${stopped.join(", ")} ${stopped.length === 1 ? "is" : "are"} not running`;
+        if (failing.length) return failing.join("; ");
+        const versions = f.packages.flatMap(g => g.packages.filter(p => p.installed).slice(0, 1).map(p => `${p.name} ${p.installed.replace(/^\d+:/, "").replace(/[-+~].*$/, "")}`));
+        const running = f.services.length && f.services.every(s => s.active === "active") ? " · running" : "";
+        return (versions.join(", ") || "Configured") + running + (f.in_use ? "" : " · not used yet");
     }
 
-    async function ctl(unit, action) {
-        await SH.action(() => SH.call("service-control", { unit, action }), { success: `${unit}: ${action} done.`, refresh: false }).catch(() => {});
-        loadLive();
+    async function installPackages(f) {
+        const list = f.installable.join(" ");
+        const ok = await C.confirm({ title: `Install ${f.label}`, message: [`ShareHub will run: apt-get install ${list}`, "This can take a few minutes. Keep this page open."], confirmLabel: "Install" });
+        if (!ok) return;
+        const m = C.modal({ title: `Installing ${list}…`, body: h("div", { class: "busy-box" }, h("span", { class: "spinner", "aria-hidden": "true" }), h("p", {}, "Downloading and installing packages. Do not close this page.")), actions: [], persistent: true });
+        try {
+            const data = await SH.call("install-packages", { packages: f.installable });
+            m.close();
+            SH.report(data, `Installed ${list}.`);
+        } catch (e) {
+            m.close();
+            SH.toast(e.message, "danger");
+        }
+        await SH.refresh().catch(() => {});
+    }
+
+    async function fix(action, label) {
+        await SH.action(() => SH.call("health-fix", { action }), { success: `${label}: fixed.`, refresh: false }).catch(() => {});
+        await SH.refresh().catch(() => {});
+    }
+
+    function featureDetails(f) {
+        const pkgRows = f.packages.flatMap(g => g.packages.map((p, i) => h("tr", {},
+            h("td", { class: "mono" }, p.name, g.packages.length > 1 && i > 0 ? h("span", { class: "muted small" }, " (alternative)") : null),
+            h("td", {}, p.installed ? C.badge("Installed " + p.installed, "on") : p.candidate ? C.badge("Available " + p.candidate) : C.badge("Not available on this system", "warn")))));
+        const svcRows = f.services.map(s => h("tr", {},
+            h("td", { class: "mono" }, C.dot(s.active), " ", s.unit),
+            h("td", {}, s.installed === false ? C.badge("Not installed") : s.active === null ? C.badge("Unknown") : C.badge(s.active === "active" ? "Running" : s.active, s.active === "active" ? "on" : "warn"),
+                s.enabled === "enabled" ? h("span", { class: "muted small" }, " · starts at boot") : null),
+            h("td", { class: "col-actions" }, s.installed ? [
+                s.active === "active" ? C.button("Restart", () => ctl(s.unit, "restart"), "link") : C.button("Start", () => ctl(s.unit, "enable"), "link"),
+                s.active === "active" && !f.core ? C.button("Stop", () => ctl(s.unit, "stop"), "link", { class: "btn btn-link btn-danger-link" }) : null] : null)));
+        const checkRows = f.checks.map(c => h("tr", {},
+            h("td", {}, h("span", { class: c.ok ? "check-ok" : "check-bad", "aria-hidden": "true" }, c.ok ? "✓ " : "! "), c.label),
+            h("td", { class: "small" + (c.ok ? " muted" : "") }, c.detail || ""),
+            h("td", { class: "col-actions" }, c.fix ? C.button("Fix", () => fix(c.fix, c.label), "link") : null)));
+        return h("div", { class: "feature-details" },
+            f.note ? h("p", { class: "muted small" }, f.note) : null,
+            pkgRows.length ? h("table", { class: "tbl tbl-compact" }, h("thead", {}, h("tr", {}, h("th", {}, "Package"), h("th", {}, "State"))), h("tbody", {}, pkgRows)) : null,
+            svcRows.length ? h("table", { class: "tbl tbl-compact" }, h("thead", {}, h("tr", {}, h("th", {}, "Service"), h("th", {}, "State"), h("th", { class: "col-actions" }, h("span", { class: "sr-only" }, "Actions")))), h("tbody", {}, svcRows)) : null,
+            checkRows.length ? h("table", { class: "tbl tbl-compact" }, h("thead", {}, h("tr", {}, h("th", {}, "Check"), h("th", {}, "Result"), h("th", { class: "col-actions" }, h("span", { class: "sr-only" }, "Actions")))), h("tbody", {}, checkRows)) : null);
+    }
+
+    function componentsCard(data) {
+        const order = { attention: 0, warning: 1, ok: 2, absent: 3 };
+        const feats = data.features.slice().sort((a, b) => (order[a.status] - order[b.status]) || (b.in_use - a.in_use));
+        const rows = feats.map(f => {
+            const [kind, text] = STATUS[f.status];
+            const open = expanded.has(f.id);
+            const detailsId = "feat-" + f.id;
+            const stoppedUnits = f.services.filter(s => s.installed && s.active !== "active");
+            const actions = [];
+            if (f.installable.length) actions.push(C.button("Install", () => installPackages(f), f.in_use || f.core ? "primary" : "secondary", { class: "btn btn-sm " + (f.in_use || f.core ? "btn-primary" : "btn-secondary") }));
+            if (f.in_use && stoppedUnits.length && !f.installable.length) actions.push(C.button("Start", async () => { for (const s of stoppedUnits) await ctl(s.unit, "enable"); }, "secondary", { class: "btn btn-sm btn-secondary" }));
+            f.checks.filter(c => !c.ok && c.fix).slice(0, 1).forEach(c => actions.push(C.button("Fix", () => fix(c.fix, c.label), "secondary", { class: "btn btn-sm btn-secondary" })));
+            const toggle = h("button", { type: "button", class: "btn btn-link", "aria-expanded": String(open), "aria-controls": detailsId }, open ? "Hide details" : "Details");
+            const details = h("div", { id: detailsId, class: open ? "" : "hidden" }, open ? featureDetails(f) : null);
+            toggle.addEventListener("click", () => {
+                if (expanded.has(f.id)) expanded.delete(f.id); else expanded.add(f.id);
+                const now = expanded.has(f.id);
+                toggle.setAttribute("aria-expanded", String(now));
+                toggle.textContent = now ? "Hide details" : "Details";
+                details.classList.toggle("hidden", !now);
+                if (now && !details.firstChild) details.appendChild(featureDetails(f));
+            });
+            return h("div", { class: "feature feature-" + f.status },
+                h("div", { class: "feature-row" },
+                    h("span", { class: "dot dot-" + (kind === "warn" ? "warn" : kind), "aria-hidden": "true" }),
+                    h("div", { class: "feature-main" },
+                        h("div", {}, h("span", { class: "strong" }, f.label), " ", C.badge(text, kind === "off" ? "" : kind === "ok" ? "on" : kind), f.in_use ? C.badge("In use", "info") : null),
+                        h("div", { class: "muted small" }, summary(f))),
+                    h("div", { class: "feature-actions" }, actions, toggle)),
+                details);
+        });
+        const attention = data.features.filter(f => f.status === "attention").length;
+        return h("div", {},
+            !data.systemd ? h("p", { class: "muted small pad" }, "systemd is not running here - service states are unknown.") : null,
+            h("div", { class: "pad muted small" }, attention ? `${SH.plural(attention, "component")} need${attention === 1 ? "s" : ""} attention.` : "Everything that is in use is installed and running."),
+            h("div", { class: "features" }, rows));
     }
 
     function connectionsCard(data) {
@@ -110,15 +188,23 @@
             }, "secondary") : null);
     }
 
+    async function loadHealth() {
+        if (!liveBox) return;
+        try {
+            liveBox.services.replaceChildren(componentsCard(await SH.call("health")));
+        } catch (e) {
+            liveBox.services.replaceChildren(C.alert("danger", "Could not check components.", e.message));
+        }
+    }
+
     async function loadLive() {
         if (!liveBox) return;
         try {
-            const [svc, conn, fw] = await Promise.all([SH.call("services"), SH.call("connections"), SH.call("firewall-status")]);
-            liveBox.services.replaceChildren(servicesCard(svc));
+            const [conn, fw] = await Promise.all([SH.call("connections"), SH.call("firewall-status")]);
             liveBox.connections.replaceChildren(connectionsCard(conn));
             liveBox.firewall.replaceChildren(firewallCard(fw));
         } catch (e) {
-            liveBox.services.replaceChildren(C.alert("danger", "Could not load live status.", e.message));
+            liveBox.connections.replaceChildren(C.alert("danger", "Could not load live status.", e.message));
         }
     }
 
@@ -133,10 +219,11 @@
             SH.fill(root,
                 h("div", { class: "alerts" }, setupAlerts(st)),
                 counters(st),
+                card("Components", liveBox.services, C.button("Check again", loadHealth, "link")),
                 h("div", { class: "grid-cards" },
-                    card("Services", liveBox.services),
-                    card("Firewall", liveBox.firewall)),
-                card("Live connections", liveBox.connections, C.button("Refresh", loadLive, "link")));
+                    card("Live connections", liveBox.connections, C.button("Refresh", loadLive, "link")),
+                    card("Firewall", liveBox.firewall)));
+            loadHealth();
             loadLive();
             clearInterval(pollTimer);
             pollTimer = setInterval(() => { if (!document.hidden && SH.currentView === "overview") loadLive(); }, 15000);

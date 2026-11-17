@@ -32,6 +32,7 @@ Environment: Ubuntu 24.04, Samba 4.19.5, ProFTPD 1.3.8b, nfs-utils 2.6.4, Cockpi
 | ProFTPD validation and rollback | enable TLS without `mod_tls` | Change refused with a clear message; previous config kept |
 | NFS exports | `exportfs -v` after apply | Options rendered as expected, including quoted paths and `all_squash` with anon IDs |
 | Validation | invalid names, paths, NFS hosts, sizes, ports | Rejected with clear messages |
+| Components dashboard (0.11.0) | removed `wsdd-server` while WS-Discovery is on; installed it from the dashboard in Cockpit | Row flagged "Needs attention" with the missing package; Install completed and the row turned "Ready"; non-allow-listed packages refused |
 | Size limit on Btrfs (0.10.0) | loop-mounted Btrfs, subvolume share, 30M limit, 45M upload over SMB | Upload refused at the limit; usage shown; raising and removing the limit work; folder (non-subvolume) refused with an explanation |
 | Size limit commands for ZFS, XFS, ext4 | unit tests on generated commands and on parsing `xfs_quota` / `repquota` / `btrfs qgroup` output | OK |
 | History restore | restore an earlier entry | Shares and settings back as before |
@@ -73,6 +74,11 @@ These need real infrastructure. Run them before calling a deployment production-
 - [ ] Add a domain group to a share; a domain user connects over SMB and FTP
 - [ ] Home directory is created on first login
 - [ ] Leave the domain with credentials; the computer account is removed from AD
+
+### Components dashboard (needs systemd)
+- [ ] Stop `nfs-server` while an NFS share exists: NFS row shows "Needs attention"; **Start** brings it back
+- [ ] Comment out the ProFTPD conf.d include: FTP row shows the failing check; **Fix** restores it
+- [ ] Install a missing optional component (e.g. sanoid) from the dashboard
 
 ### Size limits (needs kernels with quota support)
 - [ ] ZFS: share on a dataset, set 10G, fill it over SMB → "disk full"; Windows shows a 10 GB drive

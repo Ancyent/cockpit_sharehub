@@ -14,7 +14,7 @@ import os
 import re
 import sys
 
-from . import __version__, ad, ftp, migrate, paths, quota, reconcile, samba, services, users
+from . import __version__, ad, ftp, health, migrate, paths, quota, reconcile, samba, services, users
 from . import state as statemod
 from .util import HelperError, have, read_text, run
 
@@ -95,6 +95,23 @@ def cmd_quota_check(req):
         raise HelperError("Choose an existing folder first.")
     info = quota.detect(path)
     return {k: info.get(k) for k in ("fstype", "method", "supported", "reason", "mountpoint")}
+
+
+def cmd_health(_req):
+    return health.report(statemod.load())
+
+
+def cmd_install_packages(req):
+    result = health.install(req)
+    warnings = []
+    bootstrap(quiet=True)
+    services.apply_discovery(statemod.load(), warnings)
+    return {**result, "warnings": warnings}
+
+
+def cmd_health_fix(req):
+    warnings = []
+    return {**health.fix(req, warnings), "warnings": warnings}
 
 
 def cmd_history(_req):
@@ -263,6 +280,9 @@ COMMANDS = {
     "status": cmd_status,
     "browse": cmd_browse,
     "quota-check": cmd_quota_check,
+    "health": cmd_health,
+    "install-packages": cmd_install_packages,
+    "health-fix": cmd_health_fix,
     "mkdir": cmd_mkdir,
     "history": cmd_history,
     "history-restore": cmd_history_restore,
@@ -291,14 +311,15 @@ COMMANDS = {
     "migrate-detect": cmd_migrate_detect,
     "migrate-import": cmd_migrate_import,
 }
-READ_ONLY = {"status", "browse", "quota-check", "history", "ad-status", "ad-preflight", "services",
+READ_ONLY = {"status", "browse", "quota-check", "health", "history", "ad-status", "ad-preflight", "services",
              "connections", "firewall-status", "migrate-detect"}
 
 
 # --------------------------------------------------------------------------- plain-text commands
 
-def bootstrap():
-    """System preparation shared by the .deb postinst and install.sh."""
+def bootstrap(quiet=False):
+    """System preparation shared by the .deb postinst, install.sh and the Components page."""
+    say = (lambda *_: None) if quiet else print
     os.makedirs(paths.STATE_DIR, mode=0o755, exist_ok=True)
     conf = read_text(ftp.PROFTPD_CONF)
     if conf is not None:
@@ -306,17 +327,17 @@ def bootstrap():
         if not ftp.include_ok(ftp.directives()):
             with open(ftp.PROFTPD_CONF, "a") as f:
                 f.write(f"\n# Added by ShareHub\nInclude {ftp.PROFTPD_CONF_D}/\n")
-            print(f"Added 'Include {ftp.PROFTPD_CONF_D}/' to {ftp.PROFTPD_CONF}")
+            say(f"Added 'Include {ftp.PROFTPD_CONF_D}/' to {ftp.PROFTPD_CONF}")
         modules = read_text("/etc/proftpd/modules.conf")
         if modules and any(os.path.exists(p) for p in ("/usr/lib/proftpd/mod_tls.so",)):
             new = re.sub(r"^#\s*LoadModule mod_tls\.c\s*$", "LoadModule mod_tls.c", modules, flags=re.M)
             if new != modules:
                 with open("/etc/proftpd/modules.conf", "w") as f:
                     f.write(new)
-                print("Enabled mod_tls in /etc/proftpd/modules.conf")
+                say("Enabled mod_tls in /etc/proftpd/modules.conf")
     if os.path.isdir("/run/systemd/system"):
         run(["systemctl", "enable", "--now", "sharehub-recycle.timer"], check=False)
-    print("ShareHub bootstrap complete.")
+    say("ShareHub bootstrap complete.")
 
 
 def main():

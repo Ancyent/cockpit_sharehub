@@ -15,6 +15,7 @@ Browser ── Cockpit (cockpit-ws) ── cockpit-bridge ──(sudo)── /us
                                                                      ├─ users.py      users, groups, Samba passdb
                                                                      ├─ ad.py         Active Directory (winbind)
                                                                      ├─ services.py   systemd, sessions, firewall, discovery
+                                                                     ├─ health.py     components dashboard, package install, fixes
                                                                      └─ migrate.py    import from other tools
 ```
 
@@ -83,8 +84,8 @@ Registry parameters and shares that ShareHub does not own are left untouched. Th
 
 | Group | Commands |
 |---|---|
-| Read-only | `status`, `browse`, `quota-check`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
-| Changes | `enable-registry`, `share-save`, `share-delete`, `settings-save`, `apply`, `history-restore`, `user-create`, `user-update`, `user-password`, `user-smb`, `group-create`, `group-update`, `group-delete`, `mkdir`, `ad-join`, `ad-leave`, `service-control`, `disconnect`, `firewall-open`, `migrate-import` |
+| Read-only | `status`, `browse`, `quota-check`, `health`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
+| Changes | `install-packages`, `health-fix`, `enable-registry`, `share-save`, `share-delete`, `settings-save`, `apply`, `history-restore`, `user-create`, `user-update`, `user-password`, `user-smb`, `group-create`, `group-update`, `group-delete`, `mkdir`, `ad-join`, `ad-leave`, `service-control`, `disconnect`, `firewall-open`, `migrate-import` |
 | Plain text | `bootstrap` (package setup), `recycle-cleanup` (timer), `--version` |
 
 Example, run as root:
@@ -98,5 +99,6 @@ echo '{}' | sudo /usr/lib/sharehub/sharehub-helper status | python3 -m json.tool
 - The page runs with the user's Cockpit session. Every privileged operation goes through `sudo` (Cockpit administrative access) to the helper.
 - The helper validates every input against strict patterns and against NSS (users and groups must exist). Commands are run with argument lists, never through a shell.
 - Passwords reach `chpasswd` and `smbpasswd` on stdin. The AD join password goes into a temporary file (mode 0600) passed to `net ads join -A` and deleted right after; it is never stored.
+- `install-packages` only accepts packages from an allow-list (`health.INSTALLABLE`) and runs `apt-get install` non-interactively, keeping existing configuration files (`--force-confold`).
 - `state.json` and the history are readable by root only.
 - The frontend works under Cockpit's default Content Security Policy: no inline scripts or styles, and no network access.

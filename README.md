@@ -15,6 +15,7 @@ ShareHub adds a **File Sharing** page to [Cockpit](https://cockpit-project.org/)
 - **Recycle bin.** Files deleted over SMB go to `.recycle/<user>` and are removed after a retention period you choose.
 - **Active Directory.** A join wizard with prerequisite checks, winbind with `rid` or `ad` ID mapping, and domain users and groups in every access list.
 - **FTP done safely.** ProFTPD with every user jailed to the shares they are allowed to see. Each share appears as a bind mount. FTPS can be required.
+- **Components dashboard.** Shows, for each feature, the packages, services and configuration it needs, highlights what is in use but broken, and installs, starts or fixes it in one click.
 - **Operations.** Service status, live SMB/NFS/FTP sessions (including disconnecting a session), firewall port helpers for ufw and firewalld, and a change history you can restore from.
 - **Safe changes.** Every change is validated (`testparm`, `exportfs`, `proftpd -t`) before it is kept. If anything fails, the previous configuration is put back.
 - **Import.** Takes over shares created by the 45Drives *File Sharing* module, NFS exports from `/etc/exports`, and the earlier cockpit-smbftp prototype.
@@ -51,7 +52,7 @@ Full instructions, including installing from source, are in **[docs/INSTALL.md](
 
 ## Status
 
-**Version 0.10.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
+**Version 0.11.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
 
 Four areas still need validation on real infrastructure:
 - NFS client mounts;
