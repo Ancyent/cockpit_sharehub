@@ -11,6 +11,7 @@ Browser ── Cockpit (cockpit-ws) ── cockpit-bridge ──(sudo)── /us
                                                                      ├─ samba.py      registry, shares, homes, VFS modules
                                                                      ├─ nfs.py        exports + nfs.conf
                                                                      ├─ ftp.py        ProFTPD + bind mounts
+                                                                     ├─ quota.py      per-share size limits (ZFS/XFS/ext4/Btrfs)
                                                                      ├─ users.py      users, groups, Samba passdb
                                                                      ├─ ad.py         Active Directory (winbind)
                                                                      ├─ services.py   systemd, sessions, firewall, discovery
@@ -53,6 +54,8 @@ The **Restore** action in the UI re-applies one of those history files.
 | `/etc/nfs.conf.d/sharehub.conf` | NFS versions, threads, fixed NFSv3 ports | whole file |
 | `/etc/proftpd/conf.d/sharehub.conf` | Jail, TLS, passive ports, per-share and home `<Directory>` rules | whole file |
 | `/etc/fstab` | Bind mounts `<folder> /srv/ftp-shares/<share> none bind,nofail,x-sharehub` | lines tagged `x-sharehub` |
+| `/etc/sharehub/quotas.json` | Applied size limits and XFS/ext4 project IDs (from 20000) | whole file |
+| ZFS `refquota`, XFS/ext4 project quota, Btrfs qgroup limit | Size limits on share folders | set and cleared by ShareHub |
 | `/etc/krb5.conf`, `/etc/nsswitch.conf`, PAM | Only when joining AD (backup in `krb5.conf.sharehub.bak`) | on join/leave |
 
 Registry parameters and shares that ShareHub does not own are left untouched. The Overview offers to import them.
@@ -80,7 +83,7 @@ Registry parameters and shares that ShareHub does not own are left untouched. Th
 
 | Group | Commands |
 |---|---|
-| Read-only | `status`, `browse`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
+| Read-only | `status`, `browse`, `quota-check`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
 | Changes | `enable-registry`, `share-save`, `share-delete`, `settings-save`, `apply`, `history-restore`, `user-create`, `user-update`, `user-password`, `user-smb`, `group-create`, `group-update`, `group-delete`, `mkdir`, `ad-join`, `ad-leave`, `service-control`, `disconnect`, `firewall-open`, `migrate-import` |
 | Plain text | `bootstrap` (package setup), `recycle-cleanup` (timer), `--version` |
 

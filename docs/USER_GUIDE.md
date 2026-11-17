@@ -35,6 +35,19 @@ Click **Add share**, or **Edit** on an existing share. The editor has five tabs.
   | `2775` | The group has full access, others can read. |
   | `0700` | Owner only. |
 
+- **Size limit.** An optional limit such as `500G` or `2T`. It is enforced by the filesystem, for every protocol. The editor checks the folder as soon as you choose it and tells you if a limit is possible:
+
+  | Filesystem | Requirement | What clients see |
+  |---|---|---|
+  | ZFS | The share folder is a dataset (`zfs create pool/projects`); ShareHub sets `refquota` (snapshots do not count). | Size = limit |
+  | XFS | The filesystem is mounted with `prjquota` (add it in `/etc/fstab`, then remount). ShareHub assigns a project ID to the folder. | Size = limit |
+  | ext4 | The filesystem has the `project` feature (`tune2fs -O project,quota`, unmounted) and is mounted with `prjquota`; install the `quota` package. | Size = limit |
+  | Btrfs | The share folder is a subvolume (`btrfs subvolume create`). ShareHub turns on quotas for the filesystem and sets a qgroup limit. | Whole volume (the limit is still enforced) |
+
+  The Shares list shows used space against the limit. When a share is full, writes fail with "disk full" on every protocol.
+
+  > On Btrfs, turning on quotas has a cost on volumes with many snapshots. On ZFS, use a dataset per share if you want limits.
+
 - **Publish over.** SMB, NFS and FTP can each be switched on or off. At least one must be on.
 
 ### Access

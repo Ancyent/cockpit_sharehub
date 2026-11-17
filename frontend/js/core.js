@@ -98,6 +98,14 @@ SH.action = async function (fn, { success, refresh = true } = {}) {
     }
 };
 
+SH.bytes = function (n) {
+    if (n === null || n === undefined) return "?";
+    const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + " " + units[i];
+};
+
 SH.plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /* ------------------------------------------------------------------ theme (follows Cockpit) */

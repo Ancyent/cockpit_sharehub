@@ -210,3 +210,67 @@ def test_share_from_registry():
     assert share["access"]["groups"] == ["staff", "CORP\\Domain Users"]
     assert share["smb"]["recycle"] is True
     assert dropped == ["hide dot files"]
+
+
+# --------------------------------------------------------------------------- quotas
+
+from sharehub import quota  # noqa: E402
+
+
+@pytest.mark.parametrize("text,value", [("1M", 1024 ** 2), ("500G", 500 * 1024 ** 3), ("1.5T", int(1.5 * 1024 ** 4))])
+def test_quota_sizes(text, value):
+    assert quota.to_bytes(text) == value
+
+
+@pytest.mark.parametrize("text", ["", "abc", "10X", "100K", "-5G"])
+def test_quota_bad_sizes(text):
+    with pytest.raises(HelperError):
+        quota.to_bytes(text)
+
+
+def test_share_quota_normalised(share_dir):
+    share = make_share(share_dir, quota={"limit": " 500 g "})
+    assert share["quota"]["limit"] == "500G"
+    with pytest.raises(HelperError):
+        make_share(share_dir, quota={"limit": "lots"})
+
+
+def test_parse_xfs_report():
+    text = "#0                  0          0          0     00 [--------]\n#20000           1024          0     102400     00 [--------]\n"
+    assert quota.parse_xfs_report(text, 20000) == (1024 * 1024, 102400 * 1024)
+    assert quota.parse_xfs_report(text, 20001) is None
+
+
+def test_parse_repquota():
+    text = ("*** Report for project quotas on device /dev/loop0\n"
+            "Project         used    soft    hard  grace    used  soft  hard  grace\n"
+            "----------------------------------------------------------------------\n"
+            "#0        --      20       0       0              2     0     0\n"
+            "#20000    +-   10240       0   10240  7days      3     0     0\n")
+    assert quota.parse_repquota(text, 20000) == (10240 * 1024, 10240 * 1024)
+
+
+def test_parse_btrfs_qgroup():
+    text = ("Qgroupid    Referenced    Exclusive  Max referenced  Max exclusive   Path\n"
+            "--------    ----------    ---------  --------------  -------------   ----\n"
+            "0/5              16384        16384            none           none   <toplevel>\n"
+            "0/256         52412416     52412416        52428800           none   projects\n")
+    assert quota.parse_btrfs_qgroup(text, "256") == (52412416, 52428800)
+    assert quota.parse_btrfs_qgroup(text, "5") == (16384, 0)
+
+
+@pytest.mark.parametrize("method,expected", [
+    ("zfs", [["zfs", "set", "refquota=1073741824", "tank/data"]]),
+    ("xfs", [["xfs_quota", "-x", "-c", "project -s -p /srv/d 20000", "/srv"],
+             ["xfs_quota", "-x", "-c", "limit -p bhard=1048576k 20000", "/srv"]]),
+    ("ext4", [["chattr", "-R", "-p", "20000", "/srv/d"],
+              ["find", "/srv/d", "-xdev", "-type", "d", "-exec", "chattr", "+P", "{}", "+"],
+              ["setquota", "-P", "20000", "0", "1048576", "0", "0", "/srv"]]),
+    ("btrfs", [["btrfs", "quota", "enable", "/srv"], ["btrfs", "qgroup", "limit", "1073741824", "/srv/d"]]),
+])
+def test_quota_commands(monkeypatch, method, expected):
+    calls = []
+    monkeypatch.setattr(quota, "run", lambda cmd, **kw: calls.append(cmd))
+    info = {"path": "/srv/d", "mountpoint": "/srv", "method": method, "dataset": "tank/data"}
+    quota._set(info, 1024 ** 3, 20000)
+    assert calls == expected

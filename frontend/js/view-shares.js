@@ -21,7 +21,20 @@
             smb: { enabled: true, guest_ok: false, browseable: true, time_machine: false, time_machine_max_size: "", recycle: false, recycle_days: 30, shadow_copies: false, windows_acls: false },
             nfs: { enabled: false, clients: [] },
             ftp: { enabled: false, read_only: false },
+            quota: { limit: "" },
         };
+    }
+
+    function usageCell(st, name, s) {
+        if (!s.quota.limit) return h("span", { class: "muted" }, "No limit");
+        const u = st.quota_usage[name];
+        if (!u || u.used === null) return h("div", {}, h("div", {}, "Limit " + s.quota.limit), h("div", { class: "muted small" }, "usage unavailable"));
+        const pct = Math.min(100, Math.round((u.used / u.limit) * 100));
+        const kind = pct >= 95 ? "danger" : pct >= 80 ? "warn" : "ok";
+        const fill = h("div", { class: "meter-fill" });
+        fill.style.width = pct + "%"; // CSSOM is allowed by Cockpit's CSP (inline style attributes are not)
+        const bar = h("div", { class: "meter meter-" + kind, role: "meter", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(pct), "aria-label": `${name} usage` }, fill);
+        return h("div", { class: "usage" }, bar, h("div", { class: "small" }, `${SH.bytes(u.used)} of ${SH.bytes(u.limit)}`, h("span", { class: "muted" }, ` · ${pct}%`)));
     }
 
     function principalOptions(list) {
@@ -54,7 +67,7 @@
         const search = h("input", { type: "text", class: "input search", placeholder: "Filter shares…", "aria-label": "Filter shares", value: filter });
         const rowsBody = h("tbody");
         const table = h("table", { class: "tbl" },
-            h("thead", {}, h("tr", {}, ["Name", "Path", "Protocols", "Access", "Features"].map(t => h("th", { scope: "col" }, t)), h("th", { class: "col-actions" }, h("span", { class: "sr-only" }, "Actions")))),
+            h("thead", {}, h("tr", {}, ["Name", "Path", "Protocols", "Access", "Size", "Features"].map(t => h("th", { scope: "col" }, t)), h("th", { class: "col-actions" }, h("span", { class: "sr-only" }, "Actions")))),
             rowsBody);
         function fill() {
             const q = filter.toLowerCase();
@@ -70,12 +83,13 @@
                         s.ftp.enabled ? C.badge(ftpMounted ? "FTP" : "FTP · not mounted", ftpMounted ? "on" : "warn") : null,
                         s.access.read_only ? C.badge("Read only") : null)),
                     h("td", { "data-label": "Access" }, accessSummary(s)),
+                    h("td", { "data-label": "Size" }, usageCell(st, name, s)),
                     h("td", { "data-label": "Features" }, h("div", { class: "badges" }, features(s))),
                     h("td", { class: "col-actions" },
                         C.button("Edit", () => editor(name, s), "link", { disabled: !canEdit, "aria-label": `Edit ${name}` }),
                         C.button("Delete", () => remove(name, s), "link", { class: "btn btn-link btn-danger-link", "aria-label": `Delete ${name}` })));
             }));
-            if (!visible.length) rowsBody.appendChild(h("tr", {}, h("td", { colspan: "6", class: "muted center" }, "No shares match the filter.")));
+            if (!visible.length) rowsBody.appendChild(h("tr", {}, h("td", { colspan: "7", class: "muted center" }, "No shares match the filter.")));
         }
         search.addEventListener("input", () => { filter = search.value; fill(); });
         fill();
@@ -139,6 +153,25 @@
             hint: "Letters, digits, '.', '_' and '-'. This is the SMB share name and the FTP folder name." });
         const path = C.folder({ label: "Folder", value: s.path, required: true, hint: "Existing folder on this server. Use Browse… to pick or create one." });
         const comment = C.text({ label: "Description", value: s.comment, placeholder: "Optional" });
+        const quotaHint = h("div", { class: "hint", "aria-live": "polite" });
+        const quotaField = C.text({ label: "Size limit", value: s.quota.limit, mono: true, placeholder: "e.g. 500G or 2T (empty = no limit)" });
+        quotaField.el.appendChild(quotaHint);
+        let quotaOk = null;
+        async function checkQuota() {
+            const p = path.get();
+            if (!p.startsWith("/")) { quotaHint.textContent = "Enforced by the filesystem (ZFS dataset, XFS/ext4 project quota or Btrfs subvolume)."; quotaOk = null; return; }
+            quotaHint.textContent = "Checking the filesystem…";
+            try {
+                const r = await SH.call("quota-check", { path: p });
+                quotaOk = r.supported;
+                quotaHint.className = "hint" + (r.supported ? "" : " text-warn");
+                quotaHint.textContent = r.supported
+                    ? `Enforced by ${r.method === "zfs" ? "ZFS refquota" : r.method === "btrfs" ? "a Btrfs qgroup (clients see the whole volume size)" : r.method.toUpperCase() + " project quota"}.`
+                    : `Not available here: ${r.reason}`;
+            } catch (e) { quotaOk = null; quotaHint.className = "hint"; quotaHint.textContent = e.message; }
+        }
+        path.input.addEventListener("change", checkQuota);
+        path.input.addEventListener("blur", checkQuota);
         const smbOn = C.toggle({ label: "SMB (Windows, macOS, Linux)", checked: s.smb.enabled, onChange: syncTabs });
         const nfsOn = C.toggle({ label: "NFS (Linux, VMware, Proxmox)", checked: s.nfs.enabled && nfsReady, onChange: syncTabs,
             hint: nfsReady ? null : "NFS server is not installed (apt install nfs-kernel-server)." });
@@ -180,7 +213,7 @@
         updateFtpPath();
 
         const panels = {
-            general: h("div", { class: "form" }, h("div", { class: "grid-2" }, name.el, comment.el), path.el,
+            general: h("div", { class: "form" }, h("div", { class: "grid-2" }, name.el, comment.el), path.el, quotaField.el,
                 C.fieldset("Publish over", smbOn.el, nfsOn.el, ftpOn.el)),
             access: h("div", { class: "form" }, h("div", { class: "grid-2" }, users.el, groups.el), readOnly.el,
                 C.alert("info", "NFS does not use these lists.", "NFS trusts the client machine and maps users by UID/GID. Control NFS access with the client list on the NFS tab and with folder permissions.")),
@@ -211,6 +244,9 @@
             show(currentTab);
         }
         show("general");
+        checkQuota();
+        const pathSet = path.set;
+        path.set = v => { pathSet(v); checkQuota(); };
 
         const modal = C.formModal({
             title: isNew ? "Add share" : `Edit share ${originalName}`,
@@ -221,6 +257,8 @@
                 if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name.get())) { show("general"); name.setError("Use 1-64 letters, digits, '.', '_' or '-'."); return false; }
                 if (!path.get().startsWith("/")) { show("general"); path.setError("Choose a folder (absolute path)."); return false; }
                 if (!smbOn.get() && !nfsOn.get() && !ftpOn.get()) { show("general"); throw new Error("Turn on at least one protocol."); }
+                if (quotaField.get() && !/^\d+(\.\d+)?\s*[KMGTPkmgtp]?$/.test(quotaField.get())) { show("general"); quotaField.setError("Use a size like 500G or 2T."); return false; }
+                if (quotaField.get() && quotaOk === false) { show("general"); quotaField.setError("This folder does not support size limits - see the note below."); return false; }
                 if (recycle.get() && !/^\d{1,4}$/.test(String(recycleDays.get()))) { show("smb"); recycleDays.setError("Enter a number of days."); return false; }
                 const payload = {
                     name: name.get(),
@@ -231,6 +269,7 @@
                         smb: { enabled: smbOn.get(), guest_ok: guest.get(), browseable: browse.get(), time_machine: tm.get(), time_machine_max_size: tmSize.get(), recycle: recycle.get(), recycle_days: recycleDays.get() || 0, shadow_copies: shadow.get(), windows_acls: acls.get() },
                         nfs: { enabled: nfsOn.get(), clients: nfsOn.get() ? nfsClients.get().filter(c => c.host) : [] },
                         ftp: { enabled: ftpOn.get(), read_only: ftpRo.get() },
+                        quota: { limit: quotaField.get() },
                     },
                 };
                 const data = await SH.call("share-save", payload);

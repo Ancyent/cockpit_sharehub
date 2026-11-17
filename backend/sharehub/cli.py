@@ -14,7 +14,7 @@ import os
 import re
 import sys
 
-from . import __version__, ad, ftp, migrate, paths, reconcile, samba, services, users
+from . import __version__, ad, ftp, migrate, paths, quota, reconcile, samba, services, users
 from . import state as statemod
 from .util import HelperError, have, read_text, run
 
@@ -33,6 +33,7 @@ def cmd_status(_req):
         "groups": group_list,
         "ftp_root": paths.FTP_ROOT,
         "ftp_mounts": sorted(ftp.managed_mounts()),
+        "quota_usage": quota.usage(state),
         "checks": {
             "samba_installed": have("net") and os.path.exists(samba.SMB_CONF),
             "samba_version": smb_version,
@@ -86,6 +87,14 @@ def cmd_mkdir(req):
     run(["chown", f"{owner}:{group}", path])
     run(["chmod", mode, path])
     return {"path": path}
+
+
+def cmd_quota_check(req):
+    path = os.path.normpath(str(req.get("path") or ""))
+    if not path.startswith("/") or not os.path.isdir(path):
+        raise HelperError("Choose an existing folder first.")
+    info = quota.detect(path)
+    return {k: info.get(k) for k in ("fstype", "method", "supported", "reason", "mountpoint")}
 
 
 def cmd_history(_req):
@@ -253,6 +262,7 @@ def cmd_firewall_open(_req):
 COMMANDS = {
     "status": cmd_status,
     "browse": cmd_browse,
+    "quota-check": cmd_quota_check,
     "mkdir": cmd_mkdir,
     "history": cmd_history,
     "history-restore": cmd_history_restore,
@@ -281,7 +291,7 @@ COMMANDS = {
     "migrate-detect": cmd_migrate_detect,
     "migrate-import": cmd_migrate_import,
 }
-READ_ONLY = {"status", "browse", "history", "ad-status", "ad-preflight", "services",
+READ_ONLY = {"status", "browse", "quota-check", "history", "ad-status", "ad-preflight", "services",
              "connections", "firewall-status", "migrate-detect"}
 
 

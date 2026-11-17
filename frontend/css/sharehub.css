@@ -272,3 +272,11 @@ p { margin: 0 0 8px; }
 .toast-success { border-left-color: var(--ok); }
 .toast-warning { border-left-color: var(--warn-border); }
 .toast-danger { border-left-color: var(--danger); }
+
+/* quota usage meter */
+.usage { min-width: 140px; }
+.meter { height: 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin: 4px 0; }
+.meter-fill { height: 100%; border-radius: 999px; background: var(--ok); }
+.meter-warn .meter-fill { background: var(--warn-border); }
+.meter-danger .meter-fill { background: var(--danger); }
+.text-warn { color: var(--warn-text); }

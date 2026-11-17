@@ -33,13 +33,17 @@ Suggests: winbind,
           sanoid,
           zfs-auto-snapshot,
           snapper,
-          ufw
+          ufw,
+          quota,
+          xfsprogs,
+          btrfs-progs
 Description: Cockpit file sharing manager for SMB, NFS and FTP
  ShareHub adds a "File Sharing" page to Cockpit. Each share is one folder
  that can be published over SMB, NFS and FTP/FTPS at the same time, with
  one list of allowed users and groups.
  .
- Features: local users with one password for the system and Samba,
+ Features: per-share size limits (ZFS, XFS, ext4, Btrfs), local users
+ with one password for the system and Samba,
  per-user home folders, macOS optimisations and Time Machine targets,
  recycle bin with retention, Windows Previous Versions from ZFS or Btrfs
  snapshots, Active Directory membership through winbind, live connection

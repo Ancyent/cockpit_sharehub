@@ -1,3 +1,10 @@
+cockpit-sharehub (0.10.0) unstable; urgency=medium
+
+  * Per-share size limits enforced by the filesystem: ZFS refquota,
+    XFS and ext4 project quotas, Btrfs qgroups; usage shown per share.
+
+ -- Andrei Prajina <ancyent@xserv.ro>  Tue, 17 Nov 2026 22:45:00 +0200
+
 cockpit-sharehub (0.9.0) unstable; urgency=medium
 
   * First packaged release: SMB, NFS and FTP shares, users and groups,

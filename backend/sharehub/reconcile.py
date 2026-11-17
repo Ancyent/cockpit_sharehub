@@ -4,11 +4,11 @@
 
 Each module validates before it writes and rolls back its own files on failure. If any
 module fails, the previous state is re-applied so the system is never left half-changed."""
-from . import ftp, nfs, samba, services
+from . import ftp, nfs, quota, samba, services
 from . import state as statemod
 from .util import HelperError
 
-MODULES = (samba.apply, nfs.apply, ftp.apply, services.apply_discovery)
+MODULES = (quota.apply, samba.apply, nfs.apply, ftp.apply, services.apply_discovery)
 
 
 def apply(state, warnings):

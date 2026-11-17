@@ -82,6 +82,7 @@ DEFAULT_SHARE = {
     },
     "nfs": {"enabled": False, "clients": []},
     "ftp": {"enabled": False, "read_only": False},
+    "quota": {"limit": ""},
 }
 
 DEFAULT_NFS_CLIENT = {"host": "*", "rw": True, "squash": "root_squash", "sync": True,
@@ -288,6 +289,12 @@ def normalize_share(data, ftp_root):
     if len({c["host"] for c in clients}) != len(clients):
         raise HelperError("Each NFS client may appear only once per share.")
     nfs["clients"] = clients
+
+    limit = str(share["quota"]["limit"] or "").strip().upper().replace(" ", "")
+    if limit:
+        from .quota import to_bytes
+        to_bytes(limit)
+    share["quota"] = {"limit": limit}
 
     ftp = share["ftp"]
     ftp["enabled"] = bool(ftp["enabled"])

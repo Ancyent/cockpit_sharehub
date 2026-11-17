@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0 - 2026-11-17
+
+- Per-share size limits, enforced by the filesystem:
+  - ZFS: `refquota` on the dataset mounted at the share path
+  - XFS: project quota (`prjquota` mount option)
+  - ext4: project quota (`project` feature + `prjquota` mount option)
+  - Btrfs: qgroup limit on the subvolume that is the share path
+- The share editor checks the folder and explains what is needed when limits are not available
+- Shares list shows usage against the limit
+
 ## 0.9.0 - 2026-11-17
 
 First release candidate.

@@ -6,6 +6,7 @@ ShareHub adds a **File Sharing** page to [Cockpit](https://cockpit-project.org/)
 
 ## Features
 
+- **Size limits per share.** Enforced by the filesystem: ZFS datasets, XFS and ext4 project quotas, or Btrfs subvolumes. The share list shows a usage bar.
 - **One share, three protocols.** Switch SMB, NFS and FTP on and off per folder. SMB and FTP use the same users and groups; NFS uses a list of allowed client machines.
 - **Users and groups.** Local accounts with **one password for the system and Samba**, so FTP, SSH and SMB logins never drift apart. You can enable or disable each user's Samba account.
 - **Home folders.** Each user gets `\\server\<user>` over SMB and `/home/<user>` over FTP, and nobody can see anyone else's home.
@@ -50,7 +51,7 @@ Full instructions, including installing from source, are in **[docs/INSTALL.md](
 
 ## Status
 
-**Version 0.9.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
+**Version 0.10.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
 
 Four areas still need validation on real infrastructure:
 - NFS client mounts;
