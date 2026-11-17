@@ -5,12 +5,12 @@
 ```bash
 sudo apt install python3-pytest python3-pyflakes nodejs
 make lint    # pyflakes + JavaScript syntax + shell syntax
-make test    # 41 unit tests: validation, Samba/NFS/FTP rendering, import parsing
+make test    # 57 unit tests: validation, Samba/NFS/FTP rendering, import parsing
 ```
 
 CI (`.github/workflows/ci.yml`) runs both on every push and builds the `.deb`. On a `v*` tag the package is attached to the GitHub release.
 
-## Verified for 0.9.0
+## Verified for 0.9.0 and 0.10.0
 
 Environment: Ubuntu 24.04, Samba 4.19.5, ProFTPD 1.3.8b, nfs-utils 2.6.4, Cockpit 314. Systemd was not running in this environment (see "Not yet verified").
 
@@ -32,6 +32,8 @@ Environment: Ubuntu 24.04, Samba 4.19.5, ProFTPD 1.3.8b, nfs-utils 2.6.4, Cockpi
 | ProFTPD validation and rollback | enable TLS without `mod_tls` | Change refused with a clear message; previous config kept |
 | NFS exports | `exportfs -v` after apply | Options rendered as expected, including quoted paths and `all_squash` with anon IDs |
 | Validation | invalid names, paths, NFS hosts, sizes, ports | Rejected with clear messages |
+| Size limit on Btrfs (0.10.0) | loop-mounted Btrfs, subvolume share, 30M limit, 45M upload over SMB | Upload refused at the limit; usage shown; raising and removing the limit work; folder (non-subvolume) refused with an explanation |
+| Size limit commands for ZFS, XFS, ext4 | unit tests on generated commands and on parsing `xfs_quota` / `repquota` / `btrfs qgroup` output | OK |
 | History restore | restore an earlier entry | Shares and settings back as before |
 | AD join failure path | join an unreachable domain | Error shown; registry and `krb5.conf` restored |
 | Import | 45Drives-style registry shares + exports file + cockpit-smbftp state | Shares, NFS clients and FTP settings imported; old files retired |
@@ -71,6 +73,11 @@ These need real infrastructure. Run them before calling a deployment production-
 - [ ] Add a domain group to a share; a domain user connects over SMB and FTP
 - [ ] Home directory is created on first login
 - [ ] Leave the domain with credentials; the computer account is removed from AD
+
+### Size limits (needs kernels with quota support)
+- [ ] ZFS: share on a dataset, set 10G, fill it over SMB → "disk full"; Windows shows a 10 GB drive
+- [ ] XFS mounted with `prjquota`: same test; `xfs_quota -x -c 'report -p'` shows the project
+- [ ] ext4 with `project` feature + `prjquota`: same test; `repquota -P` shows the project
 
 ### Btrfs (needs a Btrfs volume and snapper)
 - [ ] Share on a snapper-managed subvolume shows Previous Versions in Windows

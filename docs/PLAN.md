@@ -24,6 +24,7 @@ A Cockpit plugin that replaces the 45Drives *File Sharing* module and manages, f
 | 4 | Active Directory: join wizard, domain users/groups in pickers, FTP via PAM winbind | **Done** (0.9.0); real-domain test pending |
 | 5 | Overview: services, live connections, firewall | **Done** (0.9.0) |
 | 6 | `.deb` package, CI, documentation | **Done**; signed apt repository pending |
+| 7 | Per-share size limits (ZFS, XFS, ext4, Btrfs) with usage in the UI | **Done** (0.10.0); Btrfs tested, ZFS/XFS/ext4 pending field test |
 
 ## Towards 1.0
 
@@ -33,7 +34,6 @@ A Cockpit plugin that replaces the 45Drives *File Sharing* module and manages, f
 
 ## Later ideas
 
-- Quotas per share (ZFS `quota` / XFS project quotas).
 - Snapshot scheduling from the UI (sanoid / snapper configuration).
 - NFS with Kerberos (`sec=krb5p`) for AD-joined servers.
 - Per-share audit log (`vfs_full_audit`) with a viewer.
