@@ -42,20 +42,37 @@
         ], hint: "With SMB3 encryption on, signing is implied." });
         const multi = C.toggle({ label: "Multichannel", checked: s.multichannel, hint: "Lets Windows use several network links or RSS queues for one session." });
         const macos = C.toggle({ label: "macOS optimisations (vfs_fruit)", checked: s.macos, hint: "Faster Finder browsing, correct resource forks and Spotlight-friendly metadata. Applies to every SMB share." });
-        const model = C.select({ label: "Server icon in Finder", value: s.macos_model, options: [
-            { value: "MacSamba", label: "Generic server" }, { value: "Xserve", label: "Xserve" },
-            { value: "RackMac", label: "Rack server" }, { value: "TimeCapsule8,119", label: "Time Capsule" },
-            { value: "MacPro7,1@ECOLOR=226,226,224", label: "Mac Pro" },
-        ].filter(o => /^[A-Za-z0-9,]+$/.test(o.value)) });
+        const MODELS = [
+            { value: "MacSamba", label: "File server (generic)", icon: () => SH.icons.server(), about: "A generic network server. A good default for any file server." },
+            { value: "Xserve", label: "Rack server, 1U", icon: () => SH.icons.rack1u(), about: "A thin rack-mounted server. Suits servers in a data-center rack." },
+            { value: "RackMac", label: "Server rack", icon: () => SH.icons.rack(), about: "A full server rack. Suits larger storage systems." },
+            { value: "TimeCapsule8,119", label: "Backup appliance (Time Capsule)", icon: () => SH.icons.backup(), about: "A backup disk. Suits a server used mainly as a Time Machine destination." },
+            { value: "MacPro", label: "Tower workstation", icon: () => SH.icons.tower(), about: "A desktop tower. Suits a small office server under a desk." },
+            { value: "iMac", label: "All-in-one desktop", icon: () => SH.icons.desktop(), about: "A desktop computer with a display." },
+        ];
+        const preview = h("div", { class: "icon-preview" });
+        const drawPreview = o => {
+            if (!o) { preview.replaceChildren(); return; }
+            preview.replaceChildren(
+                h("div", { class: "icon-preview-art", "aria-hidden": "true" }, SH.icons[{ MacSamba: "server", Xserve: "rack1u", RackMac: "rack", "TimeCapsule8,119": "backup", MacPro: "tower", iMac: "desktop" }[o.value] || "server"](56)),
+                h("div", {},
+                    h("div", { class: "strong" }, o.label, " ", h("span", { class: "muted mono small" }, `fruit:model = ${o.value}`)),
+                    h("div", {}, o.about),
+                    h("div", { class: "hint" }, "Macs show this server with Apple's matching device icon in the Finder sidebar (Locations / Network) and in Go → Connect to Server. "
+                        + "The drawing here is a simplified preview. It needs \"Announce over mDNS / Bonjour\"; Macs cache icons, so the change can take a reconnect or a Finder restart. Windows and Linux are not affected.")));
+        };
+        const known = MODELS.some(m => m.value === s.macos_model);
+        if (!known) MODELS.push({ value: s.macos_model, label: s.macos_model, icon: () => SH.icons.server(), about: "Custom model identifier." });
+        const model = C.select({ label: "How Macs show this server in Finder", value: s.macos_model, options: MODELS, onDescribe: drawPreview });
         const mdns = C.toggle({ label: "Announce over mDNS / Bonjour", checked: s.mdns, hint: "Server appears in Finder's sidebar and as a Time Machine destination (avahi-daemon)." });
-        const wsdd = C.toggle({ label: "Announce over WS-Discovery", checked: s.wsdd, hint: st.checks.wsdd_installed ? "Server appears under Network in Windows Explorer (wsdd-server)." : "Install wsdd-server to appear under Network in Windows Explorer." });
+        const wsdd = C.toggle({ label: "Announce over WS-Discovery", checked: s.wsdd, hint: st.checks.wsdd_installed ? "Server appears under Network in Windows Explorer." : "Needs wsdd-server or wsdd2 - see Overview → Components. Without it, Windows still reaches shares as \\\\server\\share." });
         const homes = C.toggle({ label: "Home folders over SMB", checked: s.homes.enabled, hint: "Every user gets \\\\server\\<username> pointing to their home directory." });
         const homesBrowse = C.toggle({ label: "List home folders when browsing", checked: s.homes.browseable });
         return h("div", { class: "form" },
             C.fieldset("Identity", h("div", { class: "grid-2" }, workgroup.el, nbName.el), desc.el, netbios.el),
             C.fieldset("Security", h("div", { class: "grid-3" }, minProto.el, enc.el, signing.el)),
             C.fieldset("Performance", multi.el),
-            C.fieldset("Apple macOS", macos.el, model.el, mdns.el),
+            C.fieldset("Apple macOS", macos.el, mdns.el, model.el, preview),
             C.fieldset("Windows", wsdd.el),
             C.fieldset("Home folders", homes.el, homesBrowse.el),
             saveBar(() => SH.action(() => SH.call("settings-save", { section: "samba", data: {

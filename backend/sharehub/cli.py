@@ -344,7 +344,7 @@ def bootstrap(quiet=False):
 
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
-    if command in ("bootstrap", "recycle-cleanup", "--version"):
+    if command in ("bootstrap", "recycle-cleanup", "check", "--version"):
         if command == "--version":
             print(__version__)
             return 0
@@ -353,6 +353,11 @@ def main():
             return 1
         if command == "bootstrap":
             bootstrap()
+        elif command == "check":
+            try:
+                print(health.text_report(statemod.load()))
+            except Exception as e:  # noqa: BLE001 - never break package installation
+                print(f"Compatibility report unavailable: {e}")
         else:
             print(f"Removed {samba.recycle_cleanup(statemod.load())} expired recycle-bin files.")
         return 0

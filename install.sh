@@ -24,8 +24,12 @@ export DEBIAN_FRONTEND=noninteractive
 packages=(cockpit samba samba-common-bin python3 make)
 if [[ $MINIMAL -eq 0 ]]; then
     packages+=(nfs-kernel-server ssl-cert avahi-daemon acl attr smbclient)
-    for optional in proftpd-core proftpd-mod-crypto wsdd-server; do
+    for optional in proftpd-core proftpd-mod-crypto; do
         apt-cache show "$optional" >/dev/null 2>&1 && packages+=("$optional")
+    done
+    # WS-Discovery: wsdd-server (Ubuntu) or wsdd2 (Debian 13)
+    for wsd in wsdd-server wsdd2; do
+        if apt-cache show "$wsd" >/dev/null 2>&1; then packages+=("$wsd"); break; fi
     done
     [[ " ${packages[*]} " == *" proftpd-core "* ]] || packages+=(proftpd-basic)
 fi
@@ -42,6 +46,8 @@ if [[ -d /run/systemd/system ]]; then
     systemctl enable --now sharehub-recycle.timer cockpit.socket
 fi
 
+echo
+/usr/lib/sharehub/sharehub-helper check || true
 cat <<MSG
 
 ShareHub is installed.

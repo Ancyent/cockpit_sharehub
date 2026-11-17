@@ -364,3 +364,23 @@ def test_report_unavailable_and_unsupported(monkeypatch):
     assert feats["wsdd"]["status"] == "unavailable" and feats["wsdd"]["installable"] == []
     assert "wsdd2" in feats["wsdd"]["reason"]
     assert feats["nfs"]["status"] == "unsupported" and feats["nfs"]["installable"] == []
+
+
+def test_verdicts_and_text_report(monkeypatch):
+    st = statemod.empty_state()
+    monkeypatch.setattr(health, "package_info", lambda names: {
+        n: {"installed": "1.0" if n in ("samba", "samba-common-bin") else None,
+            "candidate": None if n in ("wsdd-server", "wsdd2") else "1.0"} for n in names})
+    monkeypatch.setattr(health, "_service", lambda u: {"unit": u, "installed": True, "active": "active", "enabled": "enabled"})
+    monkeypatch.setattr(health, "_checks", lambda fid, state: [])
+    monkeypatch.setattr(health, "nfs_server_support", lambda: (False, "This system runs in a container (lxc)."))
+    monkeypatch.setattr(health, "system_info", lambda: {"os": "Debian GNU/Linux 13 (trixie)", "container": "lxc",
+                                                        "virtualization": "lxc", "samba": "4.22", "kernel": "6.8", "os_id": "debian", "os_version": "13"})
+    feats = {f["id"]: f for f in health.report(st)["features"]}
+    assert feats["smb"]["availability"]["verdict"] == "yes"
+    assert feats["nfs"]["availability"]["verdict"] == "no"
+    assert feats["wsdd"]["availability"]["verdict"] == "no"
+    assert feats["ftp"]["availability"]["verdict"] == "install"
+    text = health.text_report(st)
+    assert "Debian GNU/Linux 13 (trixie) (lxc container)" in text
+    assert "[ -- ] NFS server" in text and "apt install proftpd-core" in text

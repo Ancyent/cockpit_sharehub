@@ -5,6 +5,13 @@ set -e
 if [ "$1" = "configure" ]; then
     # Prepare ProFTPD (include dir, mod_tls) and the state directory.
     /usr/lib/sharehub/sharehub-helper bootstrap || true
+    # Tell the administrator what can be used on this system.
+    echo
+    /usr/lib/sharehub/sharehub-helper check || true
+    echo
+    echo "Open https://$(hostname -f 2>/dev/null || hostname):9090, turn on administrative access"
+    echo "and choose \"File Sharing\". Details: Overview -> Components."
+    echo
 fi
 
 #DEBHELPER#

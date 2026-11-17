@@ -114,6 +114,7 @@
                     id: `${id}-opt-${i}`, role: "option", class: "ms-opt" + (i === active ? " active" : ""),
                     "aria-selected": String(isSelected(o.value)),
                 }, h("span", { class: "ms-check", "aria-hidden": "true" }, isSelected(o.value) ? "✓" : ""),
+                o.icon ? h("span", { class: "opt-icon", "aria-hidden": "true" }, o.icon()) : null,
                 h("span", { class: "ms-text" }, o.label, o.meta ? h("span", { class: "ms-meta" }, o.meta) : null));
                 li.addEventListener("mousedown", ev => { ev.preventDefault(); active = i; onPick(o.value); });
                 return li;
@@ -136,16 +137,17 @@
 
     /* ---------------------------------------------------------------- single select (custom dropdown) */
 
-    C.select = function ({ label, options, value, onChange, hint, searchable, disabled }) {
+    C.select = function ({ label, options, value, onChange, hint, searchable, disabled, onDescribe }) {
         const id = SH.id("sel");
         let opts = normOptions(options);
         let current = value;
         let open = false;
+        const btnIcon = h("span", { class: "opt-icon hidden", "aria-hidden": "true" });
         const btnText = h("span", { class: "sel-value" });
         const button = h("button", {
             type: "button", class: "sel-button", id, "aria-haspopup": "listbox", "aria-expanded": "false",
             "aria-controls": id + "-list", "aria-labelledby": `${id}-lbl ${id}`,
-        }, btnText, h("span", { class: "sel-caret", "aria-hidden": "true" }, "▾"));
+        }, h("span", { class: "sel-left" }, btnIcon, btnText), h("span", { class: "sel-caret", "aria-hidden": "true" }, "▾"));
         const search = searchable ? h("input", { type: "text", class: "input sel-search", placeholder: "Search…", "aria-label": `Search ${label}`, autocomplete: "off" }) : null;
         const popup = popupList({
             id, label, multi: false, getOptions: () => opts, isSelected: v => v === current,
@@ -159,6 +161,9 @@
         function describe() {
             const o = opts.find(x => x.value === current);
             btnText.textContent = o ? o.label : "Select…";
+            btnIcon.replaceChildren(o && o.icon ? o.icon() : "");
+            btnIcon.classList.toggle("hidden", !(o && o.icon));
+            if (onDescribe) onDescribe(o);
         }
         function setValue(v, fire) {
             current = v;

@@ -44,6 +44,29 @@
             card(st.checks.samba_version.replace(/^Version\s*/, "") || "-", "Samba version", "v" + st.version + " ShareHub"));
     }
 
+    const VERDICT = {
+        yes: ["on", "Can be used"],
+        fix: ["danger", "Needs attention"],
+        install: ["info", "Needs install"],
+        no: ["", "Not possible here"],
+    };
+
+    function systemSummary(data) {
+        const s = data.system;
+        const env = s.container ? `${s.container} container` : s.virtualization ? `virtual machine (${s.virtualization})` : "physical server";
+        const count = v => data.features.filter(f => f.availability.verdict === v).length;
+        const usable = count("yes") + count("fix");
+        const item = (label, value) => h("div", { class: "sys-item" }, h("div", { class: "muted small" }, label), h("div", { class: "strong" }, value));
+        return h("div", { class: "sysinfo" },
+            h("div", { class: "sys-items" }, item("System", s.os), item("Runs as", env), item("Samba", s.samba || "not installed"), item("Kernel", s.kernel)),
+            h("div", { class: "sys-verdict" },
+                h("span", { class: "sys-big" }, `${usable} of ${data.features.length}`), " features can be used on this system",
+                h("div", { class: "badges" },
+                    count("install") ? C.badge(`${count("install")} after installing packages`, "info") : null,
+                    count("no") ? C.badge(`${count("no")} not possible here`) : null,
+                    count("fix") ? C.badge(`${count("fix")} need attention`, "danger") : null)));
+    }
+
     const STATUS = {
         ok: ["ok", "Ready"],
         attention: ["danger", "Needs attention"],
@@ -114,7 +137,8 @@
         const order = { attention: 0, warning: 1, ok: 2, absent: 3, unavailable: 4, unsupported: 5 };
         const feats = data.features.slice().sort((a, b) => (order[a.status] - order[b.status]) || (b.in_use - a.in_use));
         const rows = feats.map(f => {
-            const [kind, text] = STATUS[f.status];
+            const [kind] = STATUS[f.status];
+            const [vKind, vText] = VERDICT[f.availability.verdict];
             const open = expanded.has(f.id);
             const detailsId = "feat-" + f.id;
             const stoppedUnits = f.services.filter(s => s.installed && s.active !== "active");
@@ -136,16 +160,15 @@
                 h("div", { class: "feature-row" },
                     h("span", { class: "dot dot-" + (kind === "warn" ? "warn" : kind), "aria-hidden": "true" }),
                     h("div", { class: "feature-main" },
-                        h("div", {}, h("span", { class: "strong" }, f.label), " ", C.badge(text, kind === "off" ? "" : kind === "ok" ? "on" : kind), f.in_use ? C.badge("In use", "info") : null),
+                        h("div", {}, h("span", { class: "strong" }, f.label), " ", C.badge(vText, vKind), f.in_use ? C.badge("In use", "info") : null),
                         h("div", { class: "muted small" }, summary(f))),
                     h("div", { class: "feature-actions" }, actions, toggle)),
                 details);
         });
-        const attention = data.features.filter(f => f.status === "attention").length;
         return h("div", {},
+            systemSummary(data),
             !data.systemd ? h("p", { class: "muted small pad" }, "systemd is not running here - service states are unknown.") : null,
-            data.container ? h("p", { class: "muted small pad" }, `Running in a container (${data.container}). Features that need the kernel, such as the NFS server, are not available.`) : null,
-            h("div", { class: "pad muted small" }, attention ? `${SH.plural(attention, "component")} need${attention === 1 ? "s" : ""} attention.` : "Everything that is in use is installed and running."),
+
             h("div", { class: "features" }, rows));
     }
 

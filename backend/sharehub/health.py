@@ -148,6 +148,36 @@ def _checks(fid, state):
     return out
 
 
+def system_info():
+    osr = {}
+    for line in (read_text("/etc/os-release") or "").splitlines():
+        key, _, value = line.partition("=")
+        osr[key] = value.strip().strip('"')
+    virt = run(["systemd-detect-virt"], check=False).stdout.strip() if have("systemd-detect-virt") else ""
+    smb = run(["smbd", "--version"], check=False).stdout.strip().replace("Version ", "") if have("smbd") else ""
+    return {
+        "os": osr.get("PRETTY_NAME", "Unknown Linux"),
+        "os_id": osr.get("ID", ""),
+        "os_version": osr.get("VERSION_ID", ""),
+        "kernel": os.uname().release,
+        "container": container_type(),
+        "virtualization": "" if virt in ("", "none") else virt,
+        "samba": smb,
+    }
+
+
+def verdict(feature):
+    """Plain answer to 'can this feature be used on this system?'"""
+    status = feature["status"]
+    if status in ("unsupported", "unavailable"):
+        return {"verdict": "no", "text": "Not possible on this system: " + (feature.get("reason") or "")}
+    if feature["installable"]:
+        return {"verdict": "install", "text": "Can be used after installing " + ", ".join(feature["installable"]) + "."}
+    if status == "attention":
+        return {"verdict": "fix", "text": "Can be used, but needs attention."}
+    return {"verdict": "yes", "text": "Can be used on this system."}
+
+
 def report(state):
     feats = features(state)
     nfs_ok, nfs_reason = nfs_server_support()
@@ -193,7 +223,29 @@ def report(state):
             "note": f.get("note"), "status": status, "reason": reason, "packages": groups, "services": services,
             "checks": checks, "installable": [] if unsupported else [m for m in missing if m in INSTALLABLE],
         })
-    return {"systemd": has_systemd(), "container": container_type(), "features": out}
+    for item in out:
+        item["availability"] = verdict(item)
+    return {"systemd": has_systemd(), "container": container_type(), "system": system_info(), "features": out}
+
+
+def text_report(state, url_host=None):
+    """Compatibility report printed after installation (postinst, install.sh, `sharehub-helper check`)."""
+    data = report(state)
+    sysinfo = data["system"]
+    where = sysinfo["container"] and f"{sysinfo['container']} container" or sysinfo["virtualization"] or "physical or unknown host"
+    marks = {"yes": "[ OK ]", "install": "[ + ]", "fix": "[ !! ]", "no": "[ -- ]"}
+    lines = ["ShareHub compatibility report", f"System: {sysinfo['os']} ({where}), Samba {sysinfo['samba'] or 'not installed'}", ""]
+    width = max(len(f["label"]) for f in data["features"])
+    for f in data["features"]:
+        a = f["availability"]
+        detail = {"yes": "can be used", "fix": "can be used - check the Components page",
+                  "install": "install: apt install " + " ".join(f["installable"]),
+                  "no": (f.get("reason") or "not possible here")}[a["verdict"]]
+        lines.append(f"  {marks[a['verdict']]:7}{f['label']:<{width}}  {detail}")
+    counts = {v: sum(1 for f in data["features"] if f["availability"]["verdict"] == v) for v in marks}
+    lines += ["", f"{counts['yes'] + counts['fix']} of {len(data['features'])} features can be used now, "
+                  f"{counts['install']} after installing packages, {counts['no']} not possible on this system."]
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- actions

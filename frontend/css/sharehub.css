@@ -302,3 +302,20 @@ p { margin: 0 0 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
 @media (max-width: 760px) { .feature-row { flex-wrap: wrap; } .feature-actions { width: 100%; justify-content: flex-start; } }
+
+/* system summary */
+.sysinfo { display: flex; justify-content: space-between; gap: 20px; padding: 14px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; background: var(--surface-2); }
+.sys-items { display: flex; gap: 28px; flex-wrap: wrap; }
+.sys-verdict { text-align: right; }
+.sys-verdict .badges { justify-content: flex-end; margin-top: 4px; }
+.sys-big { font-size: 20px; font-weight: 600; }
+@media (max-width: 860px) { .sys-verdict { text-align: left; } .sys-verdict .badges { justify-content: flex-start; } }
+
+/* option icons + Finder icon preview */
+.opt-icon { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; color: var(--muted); flex: none; }
+.ms-opt[aria-selected="true"] .opt-icon, .sel-button .opt-icon { color: var(--primary); }
+.sel-left { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.icon-preview { display: flex; gap: 16px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.icon-preview:empty { display: none; }
+.icon-preview-art { width: 72px; height: 72px; flex: none; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); display: grid; place-items: center; color: var(--primary); }
+.icon-preview .hint { margin-top: 6px; }

@@ -11,6 +11,12 @@ First field test on Debian 13 (trixie) in a Proxmox LXC container.
 - Components dashboard: when no package for a feature exists in the package sources it shows
   **Not available** with what to do, instead of an Install button that cannot work
 - Missing discovery daemons are reported on the dashboard instead of a warning on every save
+- **Compatibility report**: installing the package (or running `sharehub-helper check`) prints, per feature,
+  whether it can be used on this system, can be used after installing packages, or is not possible here
+- Components dashboard: a **This system** summary (distribution, container/VM, Samba, kernel, "N of M features
+  can be used") and a plain verdict per feature: *Can be used*, *Needs install*, *Needs attention*, *Not possible here*
+- **Finder icon picker** with previews: choose how Macs show the server (file server, 1U rack server, server rack,
+  backup appliance, tower, desktop), with a description of where the icon appears
 
 ## 0.11.0 - 2026-11-17
 

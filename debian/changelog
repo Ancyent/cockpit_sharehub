@@ -5,6 +5,9 @@ cockpit-sharehub (0.12.0) unstable; urgency=medium
   * WS-Discovery works with wsdd-server or wsdd2 (Debian 13 ships wsdd2).
   * Components dashboard: packages missing from the package sources are
     shown as "Not available" with guidance instead of an Install button.
+  * Compatibility report printed at install time and a per-feature verdict
+    with a system summary on the dashboard.
+  * Finder icon picker with previews in Settings -> SMB.
 
  -- Andrei Prajina <ancyent@xserv.ro>  Tue, 17 Nov 2026 23:30:00 +0200
 

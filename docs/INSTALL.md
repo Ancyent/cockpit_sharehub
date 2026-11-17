@@ -44,6 +44,21 @@ Download the `.deb` from the [Releases page](https://github.com/Ancyent/cockpit_
 sudo apt install ./cockpit-sharehub_0.9.0_all.deb
 ```
 
+At the end of the installation the package prints a **compatibility report** - one line per feature, saying whether it can be used on this system, can be used after installing a package, or is not possible here (for example the NFS server in a container):
+
+```
+ShareHub compatibility report
+System: Debian GNU/Linux 13 (trixie) (lxc container), Samba 4.22.11-Debian
+
+  [ OK ] SMB file server                   can be used
+  [ -- ] NFS server                        This system runs in a container (lxc). ...
+  [ + ]  Windows discovery (WS-Discovery)  install: apt install wsdd2
+  ...
+9 of 11 features can be used now, 1 after installing packages, 1 not possible on this system.
+```
+
+Run it again any time with `sudo /usr/lib/sharehub/sharehub-helper check`. The same information is on **Overview → Components**.
+
 `apt` installs the required dependencies (Samba, Cockpit) and the recommended ones (NFS server, ProFTPD, Avahi, wsdd-server). If you don't want a protocol, install with `--no-install-recommends` and add only the packages you need.
 
 The package then:

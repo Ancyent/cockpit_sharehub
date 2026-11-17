@@ -14,14 +14,15 @@ ShareHub has five tabs: **Overview**, **Shares**, **Users & Groups**, **Settings
 
 - **Setup alerts.** These cover the Samba registry, shares found from other tools, and ProFTPD configuration problems.
 - **Counters.** Number of shares per protocol, local users, Active Directory status, and versions.
+- **This system.** Distribution, whether it runs in a container or VM, Samba and kernel versions, and how many features can be used here.
 - **Components.** One row per feature: SMB, NetBIOS, NFS, FTP, FTPS, macOS discovery, Windows discovery, Active Directory, Previous Versions, size limits and recycle-bin cleanup.
 
-  | Status | Meaning |
+  | Verdict | Meaning |
   |---|---|
-  | Ready | Everything it needs is installed, running and configured. |
-  | Needs attention | The feature is in use, but a package is missing, a service is stopped or a check fails. These rows are listed first. |
-  | Check configuration | A configuration check fails on a feature that is not in use yet. |
-  | Not installed | Optional and not installed. |
+  | Can be used | Everything it needs is installed (and running, when in use). |
+  | Needs install | Can be used after installing the listed packages - click **Install**. |
+  | Needs attention | In use, but a service is stopped or a check fails. These rows are listed first. |
+  | Not possible here | The system cannot run it, e.g. the NFS server in a container or a package that the distribution does not provide. The row explains why and what to do. |
 
   **Details** shows packages (installed and available versions), services (with Start, Restart and Stop) and configuration checks. **Install** runs `apt-get install` for the missing packages (only packages ShareHub knows are allowed). **Fix** repairs known problems: enables the Samba registry, adds the ProFTPD include and mod_tls, or starts the cleanup timer.
 - **Firewall.** The ports your protocols need. Opens them in ufw or firewalld when one is active.
@@ -149,12 +150,16 @@ mount -t nfs server:/srv/shares/projects /mnt/projects
   | Signing | Samba default, offered or mandatory. |
 
 - **Performance.** Multichannel.
-- **Apple macOS:**
+- **Apple macOS** (see also *How Macs show this server* below):
   - `vfs_fruit` optimisations (recommended when Macs use the server);
   - the Finder icon;
   - Bonjour announcements, which are also needed for Time Machine discovery.
 - **Windows.** WS-Discovery announcements (needs `wsdd-server`).
 - **Home folders.** `\\server\<username>` for every user, optionally listed when browsing.
+
+#### How Macs show this server
+
+Pick the device type Finder uses for this server: file server (generic, default), 1U rack server, server rack, backup appliance (good for a Time Machine server), tower, or desktop. The picture next to each choice is a simplified preview; on the Mac, Finder draws Apple's own icon for that device type in the sidebar (Locations / Network) and in *Go → Connect to Server*. It needs "Announce over mDNS / Bonjour". Macs cache these icons, so a change may need a reconnect or a Finder restart. Windows and Linux are not affected.
 
 ### NFS
 
