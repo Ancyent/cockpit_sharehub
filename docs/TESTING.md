@@ -5,7 +5,7 @@
 ```bash
 sudo apt install python3-pytest python3-pyflakes nodejs
 make lint    # pyflakes + JavaScript syntax + shell syntax
-make test    # 57 unit tests: validation, Samba/NFS/FTP rendering, import parsing
+make test    # 73 unit tests: validation, Samba/NFS/FTP rendering, import parsing
 ```
 
 CI (`.github/workflows/ci.yml`) runs both on every push and builds the `.deb`. On a `v*` tag the package is attached to the GitHub release.
@@ -32,6 +32,8 @@ Environment: Ubuntu 24.04, Samba 4.19.5, ProFTPD 1.3.8b, nfs-utils 2.6.4, Cockpi
 | ProFTPD validation and rollback | enable TLS without `mod_tls` | Change refused with a clear message; previous config kept |
 | NFS exports | `exportfs -v` after apply | Options rendered as expected, including quoted paths and `all_squash` with anon IDs |
 | Validation | invalid names, paths, NFS hosts, sizes, ports | Rejected with clear messages |
+| Versioning on Btrfs (0.13.0) | loop-mounted Btrfs subvolume share; scheduled run, SMB `allinfo` / `get @GMT-…`, write attempt into a version, restore via helper and UI | Versions created and listed as Previous Versions; old content readable; writes refused (`NT_STATUS_MEDIA_WRITE_PROTECTED`, and "Read-only file system" for root); snapshot folder invisible over SMB; restore without overwrite works |
+| Protected recycle bin (0.13.0) | delete the same file 4 times over SMB, list `.recycle` over SMB, cleanup with limit 3, restore | `.recycle` not reachable over SMB; 3 newest copies kept; restore strips "Copy #N of" and never overwrites |
 | Components dashboard (0.11.0) | removed `wsdd-server` while WS-Discovery is on; installed it from the dashboard in Cockpit | Row flagged "Needs attention" with the missing package; Install completed and the row turned "Ready"; non-allow-listed packages refused |
 | Size limit on Btrfs (0.10.0) | loop-mounted Btrfs, subvolume share, 30M limit, 45M upload over SMB | Upload refused at the limit; usage shown; raising and removing the limit work; folder (non-subvolume) refused with an explanation |
 | Size limit commands for ZFS, XFS, ext4 | unit tests on generated commands and on parsing `xfs_quota` / `repquota` / `btrfs qgroup` output | OK |
@@ -89,6 +91,11 @@ These need real infrastructure. Run them before calling a deployment production-
 - [ ] Stop `nfs-server` while an NFS share exists: NFS row shows "Needs attention"; **Start** brings it back
 - [ ] Comment out the ProFTPD conf.d include: FTP row shows the failing check; **Fix** restores it
 - [ ] Install a missing optional component (e.g. sanoid) from the dashboard
+
+### Versioning
+- [ ] ZFS dataset share: versions every 15 minutes for a few hours; retention prunes; Windows Previous Versions lists them
+- [ ] Windows: restore a file from Previous Versions; try to delete a version from Windows (must fail)
+- [ ] Check after a reboot that `sharehub-snapshot.timer` is active and versions continue
 
 ### Size limits (needs kernels with quota support)
 - [ ] ZFS: share on a dataset, set 10G, fill it over SMB → "disk full"; Windows shows a 10 GB drive

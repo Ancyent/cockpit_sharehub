@@ -43,7 +43,7 @@ make install
 /usr/lib/sharehub/sharehub-helper bootstrap
 if [[ -d /run/systemd/system ]]; then
     systemctl daemon-reload
-    systemctl enable --now sharehub-recycle.timer cockpit.socket
+    systemctl enable --now sharehub-recycle.timer sharehub-snapshot.timer cockpit.socket
 fi
 
 echo

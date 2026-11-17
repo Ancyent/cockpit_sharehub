@@ -14,7 +14,7 @@ import os
 import re
 import sys
 
-from . import __version__, ad, ftp, health, migrate, paths, quota, reconcile, samba, services, users
+from . import __version__, ad, ftp, health, migrate, paths, quota, reconcile, samba, services, snapshots, users
 from . import state as statemod
 from .util import HelperError, have, nfs_server_support, read_text, run, wsdd_unit
 
@@ -34,6 +34,7 @@ def cmd_status(_req):
         "ftp_root": paths.FTP_ROOT,
         "ftp_mounts": sorted(ftp.managed_mounts()),
         "quota_usage": quota.usage(state),
+        "versions": _versions_summary(state),
         "checks": {
             "samba_installed": have("net") and os.path.exists(samba.SMB_CONF),
             "samba_version": smb_version,
@@ -89,6 +90,65 @@ def cmd_mkdir(req):
     run(["chown", f"{owner}:{group}", path])
     run(["chmod", mode, path])
     return {"path": path}
+
+
+def _versions_summary(state):
+    out = {}
+    for name, share in state["shares"].items():
+        if not share["versioning"]["snapshots"]:
+            continue
+        try:
+            snaps = snapshots.list_snapshots(share["path"])
+        except Exception:  # noqa: BLE001 - a broken share must not break the status page
+            snaps = []
+        out[name] = {"count": len(snaps), "latest": snaps[0]["time"].isoformat() if snaps else None}
+    return out
+
+
+def _share(req):
+    st = statemod.load()
+    name = statemod.find_share(st, req.get("name") or "")
+    if not name:
+        raise HelperError("Share not found.")
+    return name, st["shares"][name]
+
+
+def cmd_versions_check(req):
+    path = os.path.normpath(str(req.get("path") or ""))
+    if not path.startswith("/") or not os.path.isdir(path):
+        raise HelperError("Choose an existing folder first.")
+    info = snapshots.detect(path)
+    return {k: info.get(k) for k in ("method", "supported", "reason", "fstype")}
+
+
+def cmd_versions_list(req):
+    name, share = _share(req)
+    snaps = snapshots.list_snapshots(share["path"]) if share["versioning"]["snapshots"] or \
+        snapshots.detect(share["path"])["supported"] else []
+    recycle = snapshots.recycle_items(share["path"]) if share["smb"]["recycle"] else []
+    return {"name": name, "snapshots": [{"name": s["name"], "time": s["time"].isoformat()} for s in snaps],
+            "recycle": recycle, "versioning": share["versioning"], "recycle_enabled": share["smb"]["recycle"]}
+
+
+def cmd_versions_browse(req):
+    _name, share = _share(req)
+    root = snapshots.snapshot_root(share["path"], req.get("snapshot"))
+    return snapshots.browse(root, req.get("path"))
+
+
+def cmd_versions_restore(req):
+    _name, share = _share(req)
+    if req.get("snapshot"):
+        restored = snapshots.restore_from_snapshot(share["path"], req.get("snapshot"), req.get("path"))
+    else:
+        restored = snapshots.restore_from_recycle(share["path"], req.get("item"))
+    return {"restored": restored, "warnings": []}
+
+
+def cmd_versions_create(req):
+    name, share = _share(req)
+    created = snapshots.create(share["path"])
+    return {"created": created, "warnings": []}
 
 
 def cmd_quota_check(req):
@@ -282,6 +342,11 @@ COMMANDS = {
     "status": cmd_status,
     "browse": cmd_browse,
     "quota-check": cmd_quota_check,
+    "versions-check": cmd_versions_check,
+    "versions-list": cmd_versions_list,
+    "versions-browse": cmd_versions_browse,
+    "versions-restore": cmd_versions_restore,
+    "versions-create": cmd_versions_create,
     "health": cmd_health,
     "install-packages": cmd_install_packages,
     "health-fix": cmd_health_fix,
@@ -313,7 +378,7 @@ COMMANDS = {
     "migrate-detect": cmd_migrate_detect,
     "migrate-import": cmd_migrate_import,
 }
-READ_ONLY = {"status", "browse", "quota-check", "health", "history", "ad-status", "ad-preflight", "services",
+READ_ONLY = {"status", "browse", "quota-check", "health", "versions-check", "versions-list", "versions-browse", "history", "ad-status", "ad-preflight", "services",
              "connections", "firewall-status", "migrate-detect"}
 
 
@@ -338,13 +403,13 @@ def bootstrap(quiet=False):
                     f.write(new)
                 say("Enabled mod_tls in /etc/proftpd/modules.conf")
     if os.path.isdir("/run/systemd/system"):
-        run(["systemctl", "enable", "--now", "sharehub-recycle.timer"], check=False)
+        run(["systemctl", "enable", "--now", "sharehub-recycle.timer", "sharehub-snapshot.timer"], check=False)
     say("ShareHub bootstrap complete.")
 
 
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
-    if command in ("bootstrap", "recycle-cleanup", "check", "--version"):
+    if command in ("bootstrap", "recycle-cleanup", "snapshot-run", "check", "--version"):
         if command == "--version":
             print(__version__)
             return 0
@@ -353,13 +418,15 @@ def main():
             return 1
         if command == "bootstrap":
             bootstrap()
+        elif command == "snapshot-run":
+            snapshots.run_schedule(statemod.load())
         elif command == "check":
             try:
                 print(health.text_report(statemod.load()))
             except Exception as e:  # noqa: BLE001 - never break package installation
                 print(f"Compatibility report unavailable: {e}")
         else:
-            print(f"Removed {samba.recycle_cleanup(statemod.load())} expired recycle-bin files.")
+            print(f"Removed {samba.recycle_cleanup(statemod.load())} recycle-bin files (expired or over the version limit).")
         return 0
 
     try:

@@ -72,7 +72,7 @@ Click **Add share**, or **Edit** on an existing share. The editor has five tabs.
 | Guest access | Anyone can connect without a password. | Only for public, non-sensitive data. |
 | Visible when browsing | Shown in network browsers; hidden shares stay reachable by name. | On. |
 | Time Machine backup destination | Macs can use this share for backups; optional size limit (e.g. `1T`). | Use a dedicated share, one per group of Macs, with a limit. |
-| Recycle bin | Deleted files go to `.recycle/<user>/` inside the share, keeping the folder tree and older versions. A daily timer removes files older than the retention. `0` keeps them forever. | On for shared team folders. |
+| Recycle bin | Deleted files go to `.recycle/<user>/` inside the share, keeping the folder tree. **Versions kept per file** limits how many copies of the same file are kept (`Copy #N of …`). **Protect deleted files from users** hides the recycle bin from SMB and FTP, so users and ransomware cannot see or purge it; restore through *Shares → Versions*. A daily timer removes files older than the retention (`0` = keep). | On, protected, for shared team folders. |
 | Previous Versions | Exposes ZFS or Btrfs snapshots in Windows under *Properties → Previous Versions*. | See below. |
 | Windows ACLs | Lets Windows clients set detailed permissions (stored as extended attributes). | Only if Windows admins need to manage permissions from Windows. |
 
@@ -108,6 +108,20 @@ Client paths: NFSv4 clients mount `server:/path/to/folder`, for example:
 ```bash
 mount -t nfs server:/srv/shares/projects /mnt/projects
 ```
+
+### Versions
+
+Scheduled, read-only versions of the whole share. This needs a ZFS dataset or a Btrfs subvolume (the tab tells you whether it is possible for the chosen folder).
+
+- **Keep scheduled versions.** A snapshot every hour, or **every 15 minutes**. Snapshots only store what changed, so they are cheap.
+- **How many versions to keep.** Set it per class: 15-minute, hourly, daily, weekly and monthly. Older versions are removed automatically. Example: 8 / 24 / 14 / 8 / 6 means the last 2 hours every 15 minutes, the last day hourly, two weeks daily, two months weekly and half a year monthly.
+- **Immutable for users.** Versions cannot be modified or deleted from SMB, NFS or FTP, so ransomware running on a client cannot destroy them. Windows users see them under *Properties → Previous Versions*; the snapshot folder itself is hidden.
+- **ext4 / XFS.** Scheduled versions are not possible. Use the recycle bin for deleted files.
+
+### Restoring files (Shares → Versions)
+
+- **Versions tab.** Pick a version (newest first), browse its folders and click **Restore** on a file or folder. It is copied back to its original place. If a file with that name exists, it is kept, and the restored copy is named `name (restored YYYY-MM-DD HH.MM).ext`. **Create a version now** takes one immediately, for example before a risky change.
+- **Deleted files tab.** Every file deleted over SMB while the recycle bin is on, with who deleted it and when. **Restore** puts it back where it was.
 
 ### FTP
 

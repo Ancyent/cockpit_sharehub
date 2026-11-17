@@ -77,12 +77,23 @@ DEFAULT_SHARE = {
         "time_machine_max_size": "",
         "recycle": False,
         "recycle_days": 30,
+        "recycle_protect": True,
+        "recycle_versions": 10,
         "shadow_copies": False,
         "windows_acls": False,
     },
     "nfs": {"enabled": False, "clients": []},
     "ftp": {"enabled": False, "read_only": False},
     "quota": {"limit": ""},
+    "versioning": {
+        "snapshots": False,
+        "frequent": False,
+        "keep_frequent": 8,
+        "keep_hourly": 24,
+        "keep_daily": 14,
+        "keep_weekly": 8,
+        "keep_monthly": 6,
+    },
 }
 
 DEFAULT_NFS_CLIENT = {"host": "*", "rw": True, "squash": "root_squash", "sync": True,
@@ -262,7 +273,7 @@ def normalize_share(data, ftp_root):
     acc["read_only"] = bool(acc["read_only"])
 
     smb = share["smb"]
-    for key in ("enabled", "guest_ok", "browseable", "time_machine", "recycle",
+    for key in ("enabled", "guest_ok", "browseable", "time_machine", "recycle", "recycle_protect",
                 "shadow_copies", "windows_acls"):
         smb[key] = bool(smb[key])
     size = str(smb["time_machine_max_size"] or "").strip().upper().replace(" ", "")
@@ -270,6 +281,20 @@ def normalize_share(data, ftp_root):
         raise HelperError("Time Machine size limit must look like 500G or 2T.")
     smb["time_machine_max_size"] = size
     smb["recycle_days"] = _int_field(smb["recycle_days"], "Recycle bin retention (days)", 0, 3650)
+    smb["recycle_versions"] = _int_field(smb["recycle_versions"], "Versions kept per deleted file", 0, 1000)
+
+    v = share["versioning"]
+    v["snapshots"] = bool(v["snapshots"])
+    v["frequent"] = bool(v["frequent"])
+    for key, label in (("keep_frequent", "15-minute versions"), ("keep_hourly", "Hourly versions"),
+                       ("keep_daily", "Daily versions"), ("keep_weekly", "Weekly versions"),
+                       ("keep_monthly", "Monthly versions")):
+        v[key] = _int_field(v[key], label, 0, 1000)
+    if v["snapshots"]:
+        from .snapshots import detect
+        info = detect(share["path"])
+        if not info["supported"]:
+            raise HelperError("Scheduled versions are not possible for this folder. " + info["reason"])
 
     nfs = share["nfs"]
     nfs["enabled"] = bool(nfs["enabled"])

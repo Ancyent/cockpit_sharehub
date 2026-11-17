@@ -384,3 +384,75 @@ def test_verdicts_and_text_report(monkeypatch):
     text = health.text_report(st)
     assert "Debian GNU/Linux 13 (trixie) (lxc container)" in text
     assert "[ -- ] NFS server" in text and "apt install proftpd-core" in text
+
+
+# --------------------------------------------------------------------------- versioning
+
+import datetime as _dt  # noqa: E402
+
+from sharehub import snapshots  # noqa: E402
+
+
+def _t(*args):
+    return _dt.datetime(*args, tzinfo=_dt.timezone.utc)
+
+
+def test_retention_hourly_daily():
+    now = _t(2026, 11, 17, 12, 0)
+    times = [now - _dt.timedelta(minutes=15 * i) for i in range(0, 4 * 24 * 5)]   # 5 days every 15 min
+    keep = snapshots.keep_set(times, {"keep_frequent": 4, "keep_hourly": 6, "keep_daily": 3,
+                                      "keep_weekly": 0, "keep_monthly": 0}, now)
+    assert now in keep                                   # newest always kept
+    assert len([t for t in keep if t > now - _dt.timedelta(hours=1)]) == 4   # 4 most recent quarter-hours
+    hours = {(t.day, t.hour) for t in keep}
+    assert len(hours) >= 6
+    days = {t.day for t in keep}
+    assert days == {17, 16, 15}                          # 3 daily versions
+    assert len(keep) < len(times)
+
+
+def test_retention_keeps_newest_with_zero_policy():
+    now = _t(2026, 1, 1, 0, 0)
+    assert snapshots.keep_set([now, now - _dt.timedelta(hours=1)], {}, now) == {now}
+
+
+def test_snapshot_names_roundtrip():
+    t = _t(2026, 11, 17, 21, 0, 5)
+    name = snapshots.PREFIX + t.strftime(snapshots.TIME_FORMAT)
+    assert name == "sharehub_2026.11.17-21.00.05"
+    assert snapshots._parse(name) == t
+    assert snapshots._parse("autosnap_2026") is None
+
+
+@pytest.mark.parametrize("rel,expected", [("a/b.txt", "a/b.txt"), ("/a/../b", "b"), ("../../etc/passwd", "etc/passwd"), ("", "")])
+def test_safe_rel(rel, expected):
+    assert snapshots._safe_rel(rel) == expected
+
+
+def test_recycle_trim_and_restore(tmp_path):
+    share = tmp_path / "share"
+    rec = share / ".recycle" / "maria" / "docs"
+    rec.mkdir(parents=True)
+    for i, name in enumerate(["r.txt", "Copy #1 of r.txt", "Copy #2 of r.txt", "Copy #3 of r.txt"]):
+        f = rec / name
+        f.write_text(str(i))
+        os.utime(f, (1000 + i, 1000 + i))
+    assert snapshots.trim_recycle_versions(str(share), 2) == 2
+    left = sorted(p.name for p in rec.iterdir())
+    assert left == ["Copy #2 of r.txt", "Copy #3 of r.txt"]
+    restored = snapshots.restore_from_recycle(str(share), "maria/docs/Copy #3 of r.txt")
+    assert restored == "docs/r.txt" and (share / "docs" / "r.txt").read_text() == "3"
+    restored2 = snapshots.restore_from_recycle(str(share), "maria/docs/Copy #2 of r.txt")
+    assert restored2.startswith("docs/r (restored ") and restored2.endswith(").txt")
+
+
+def test_samba_params_for_versioning(monkeypatch, share_dir):
+    monkeypatch.setattr(snapshots, "detect", lambda p: {"method": "btrfs", "supported": True})
+    st = statemod.empty_state()
+    share = make_share(share_dir, smb={"enabled": True, "recycle": True, "recycle_protect": True})
+    share["versioning"]["snapshots"] = True
+    p = samba.render_share("Data", share, st, [])
+    assert p["shadow:snapdir"] == ".sharehub-snapshots"
+    assert p["shadow:format"] == "sharehub_%Y.%m.%d-%H.%M.%S"
+    assert p["veto files"] == "/.sharehub-snapshots/.recycle/"
+    assert "shadow_copy2" in p["vfs objects"]

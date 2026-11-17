@@ -88,7 +88,14 @@ def render(state, shares, found):
             out += ["    DenyAll", "  </Limit>"]
         if acc["read_only"] or share["ftp"]["read_only"]:
             out += ["  <Limit WRITE SITE_CHMOD>", "    DenyAll", "  </Limit>"]
-        out.append("</Directory>")
+        out += ["  HideNoAccess on", "</Directory>"]
+        hidden = []
+        if share["smb"]["recycle"] and share["smb"]["recycle_protect"]:
+            hidden.append(".recycle")
+        if share["versioning"]["snapshots"]:
+            hidden.append(".sharehub-snapshots")
+        for d in hidden:
+            out += [f"<Directory {FTP_ROOT}/{name}/{d}>", "  <Limit ALL>", "    DenyAll", "  </Limit>", "</Directory>"]
     return "\n".join(out) + "\n"
 
 

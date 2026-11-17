@@ -243,7 +243,17 @@ def render_share(name, share, state, warnings):
         vfs.append("acl_xattr")
         p["map acl inherit"] = "yes"
         p["store dos attributes"] = "yes"
-    if smb["shadow_copies"]:
+    veto = []
+    if share["versioning"]["snapshots"]:
+        # ShareHub's own scheduled snapshots: always shown as Previous Versions
+        from . import snapshots
+        params = snapshots.samba_params(share["path"])
+        if params:
+            vfs.append("shadow_copy2")
+            p.update(params)
+            if params["shadow:snapdir"] == snapshots.BTRFS_DIR:
+                veto.append(snapshots.BTRFS_DIR)
+    elif smb["shadow_copies"]:
         module, params = shadow_params(share["path"], warnings, name)
         if module:
             vfs.append(module)
@@ -259,6 +269,12 @@ def render_share(name, share, state, warnings):
             "recycle:exclude": RECYCLE_EXCLUDE,
             "recycle:exclude_dir": ".recycle,tmp,temp",
         })
+        if smb["recycle_protect"]:
+            # deleted files cannot be seen, changed or purged by clients; restore through ShareHub
+            veto.append(".recycle")
+    if veto:
+        p["veto files"] = "/" + "/".join(veto) + "/"
+        p["delete veto files"] = "no"
     if smb["time_machine"]:
         p["fruit:time machine"] = "yes"
         if smb["time_machine_max_size"]:
@@ -389,11 +405,15 @@ def unmanaged_shares(state):
 # --------------------------------------------------------------------------- recycle cleanup
 
 def recycle_cleanup(state):
-    """Delete recycle-bin files older than each share's retention. Run daily by a timer."""
+    """Delete recycle-bin files older than each share's retention and trim extra versions."""
+    from .snapshots import trim_recycle_versions
     removed = 0
     for name, share in state["shares"].items():
         smb = share["smb"]
-        if not (smb["enabled"] and smb["recycle"] and smb["recycle_days"]):
+        if not (smb["enabled"] and smb["recycle"]):
+            continue
+        removed += trim_recycle_versions(share["path"], smb["recycle_versions"])
+        if not smb["recycle_days"]:
             continue
         root = os.path.join(share["path"], ".recycle")
         if not os.path.isdir(root):

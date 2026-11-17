@@ -12,7 +12,8 @@ ShareHub adds a **File Sharing** page to [Cockpit](https://cockpit-project.org/)
 - **Home folders.** Each user gets `\\server\<user>` over SMB and `/home/<user>` over FTP, and nobody can see anyone else's home.
 - **macOS.** Optional `vfs_fruit` tuning, **Time Machine** destinations with a size limit, and Bonjour (mDNS) announcements.
 - **Windows.** **Previous Versions** from ZFS snapshots (sanoid, zfs-auto-snapshot) or Btrfs snapshots (snapper), optional Windows ACLs, and WS-Discovery so the server shows up under *Network*.
-- **Recycle bin.** Files deleted over SMB go to `.recycle/<user>` and are removed after a retention period you choose.
+- **Versioning.** Read-only versions of a share every 15 minutes or hourly (ZFS or Btrfs), with hourly/daily/weekly/monthly retention. Users and ransomware cannot change them. Windows shows them as *Previous Versions*, and the admin restores any file or folder from the UI.
+- **Recycle bin.** Files deleted over SMB are kept, optionally hidden from users, with a limit on versions per file and a retention period. Restore them from the UI.
 - **Active Directory.** A join wizard with prerequisite checks, winbind with `rid` or `ad` ID mapping, and domain users and groups in every access list.
 - **FTP done safely.** ProFTPD with every user jailed to the shares they are allowed to see. Each share appears as a bind mount. FTPS can be required.
 - **Components dashboard.** Shows, for each feature, the packages, services and configuration it needs, highlights what is in use but broken, and installs, starts or fixes it in one click.
@@ -52,7 +53,7 @@ Full instructions, including installing from source, are in **[docs/INSTALL.md](
 
 ## Status
 
-**Version 0.12.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
+**Version 0.13.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
 
 Four areas still need validation on real infrastructure:
 - NFS client mounts;

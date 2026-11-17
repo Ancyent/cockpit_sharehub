@@ -18,10 +18,11 @@
         return {
             path: "", comment: "",
             access: { users: [], groups: [], read_only: false },
-            smb: { enabled: true, guest_ok: false, browseable: true, time_machine: false, time_machine_max_size: "", recycle: false, recycle_days: 30, shadow_copies: false, windows_acls: false },
+            smb: { enabled: true, guest_ok: false, browseable: true, time_machine: false, time_machine_max_size: "", recycle: false, recycle_days: 30, recycle_protect: true, recycle_versions: 10, shadow_copies: false, windows_acls: false },
             nfs: { enabled: false, clients: [] },
             ftp: { enabled: false, read_only: false },
             quota: { limit: "" },
+            versioning: { snapshots: false, frequent: false, keep_frequent: 8, keep_hourly: 24, keep_daily: 14, keep_weekly: 8, keep_monthly: 6 },
         };
     }
 
@@ -44,7 +45,8 @@
     function features(s) {
         const out = [];
         if (s.smb.enabled && s.smb.time_machine) out.push(C.badge("Time Machine", "info"));
-        if (s.smb.enabled && s.smb.recycle) out.push(C.badge("Recycle bin", "info"));
+        if (s.versioning.snapshots) out.push(C.badge("Versions" + (s.versioning.frequent ? " · 15 min" : " · hourly"), "info"));
+        if (s.smb.enabled && s.smb.recycle) out.push(C.badge(s.smb.recycle_protect ? "Recycle bin (protected)" : "Recycle bin", "info"));
         if (s.smb.enabled && s.smb.shadow_copies) out.push(C.badge("Previous Versions", "info"));
         if (s.smb.enabled && s.smb.windows_acls) out.push(C.badge("Windows ACLs", "info"));
         if (s.smb.enabled && s.smb.guest_ok) out.push(C.badge("Guest", "warn"));
@@ -86,6 +88,7 @@
                     h("td", { "data-label": "Size" }, usageCell(st, name, s)),
                     h("td", { "data-label": "Features" }, h("div", { class: "badges" }, features(s))),
                     h("td", { class: "col-actions" },
+                        s.versioning.snapshots || (s.smb.enabled && s.smb.recycle) ? C.button("Versions", () => SH.views.versions.open(name), "link", { "aria-label": `Versions of ${name}` }) : null,
                         C.button("Edit", () => editor(name, s), "link", { disabled: !canEdit, "aria-label": `Edit ${name}` }),
                         C.button("Delete", () => remove(name, s), "link", { class: "btn btn-link btn-danger-link", "aria-label": `Delete ${name}` })));
             }));
@@ -193,15 +196,50 @@
         const tm = C.toggle({ label: "Time Machine backup destination", checked: s.smb.time_machine, onChange: v => tmSize.el.classList.toggle("hidden", !v),
             hint: "Macs can back up here. Use a dedicated share." });
         tmSize.el.classList.toggle("hidden", !s.smb.time_machine);
-        const recycleDays = C.text({ label: "Keep deleted files for (days)", value: s.smb.recycle_days, mono: true, hint: "0 keeps them until you empty .recycle by hand." });
-        const recycle = C.toggle({ label: "Recycle bin", checked: s.smb.recycle, onChange: v => recycleDays.el.classList.toggle("hidden", !v),
-            hint: "Files deleted over SMB go to .recycle/<user> inside the share instead of disappearing." });
-        recycleDays.el.classList.toggle("hidden", !s.smb.recycle);
+        const recycleDays = C.text({ label: "Keep deleted files for (days)", value: s.smb.recycle_days, mono: true, hint: "0 keeps them until you remove them." });
+        const recycleVersions = C.text({ label: "Versions kept per file", value: s.smb.recycle_versions, mono: true, hint: "When the same file is deleted again, older copies beyond this number are removed. 0 = no limit." });
+        const recycleProtect = C.toggle({ label: "Protect deleted files from users", checked: s.smb.recycle_protect,
+            hint: "Users and ransomware cannot see, change or purge the recycle bin. Restore files from Shares → Versions." });
+        const recycleBox = h("div", { class: "form" }, h("div", { class: "grid-2" }, recycleDays.el, recycleVersions.el), recycleProtect.el);
+        const recycle = C.toggle({ label: "Recycle bin", checked: s.smb.recycle, onChange: v => recycleBox.classList.toggle("hidden", !v),
+            hint: "Files deleted over SMB are kept in .recycle/<user> inside the share instead of disappearing." });
+        recycleBox.classList.toggle("hidden", !s.smb.recycle);
         const shadowHint = st.checks.sanoid_installed || st.checks.zfs_auto_snapshot_installed || st.checks.snapper_installed
             ? "Windows shows snapshots of this folder under Properties → Previous Versions. Needs ZFS or Btrfs snapshots."
             : "Needs ZFS snapshots (sanoid or zfs-auto-snapshot) or Btrfs snapshots (snapper). None of these tools is installed.";
         const shadow = C.toggle({ label: "Previous Versions", checked: s.smb.shadow_copies, hint: shadowHint });
         const acls = C.toggle({ label: "Windows ACLs", checked: s.smb.windows_acls, hint: "Let Windows clients set detailed permissions (stored as extended attributes). Leave off for simple POSIX permissions." });
+
+        // Versions
+        const V = s.versioning;
+        const verHint = h("div", { class: "hint", "aria-live": "polite" });
+        const keepFields = {
+            keep_frequent: C.text({ label: "15-minute versions", value: V.keep_frequent, mono: true, hint: "8 = the last 2 hours" }),
+            keep_hourly: C.text({ label: "Hourly", value: V.keep_hourly, mono: true, hint: "24 = one per hour for a day" }),
+            keep_daily: C.text({ label: "Daily", value: V.keep_daily, mono: true }),
+            keep_weekly: C.text({ label: "Weekly", value: V.keep_weekly, mono: true }),
+            keep_monthly: C.text({ label: "Monthly", value: V.keep_monthly, mono: true }),
+        };
+        const frequent = C.toggle({ label: "Every 15 minutes", checked: V.frequent, hint: "Otherwise every hour. At most 15 minutes of work can be lost.",
+            onChange: v => keepFields.keep_frequent.el.classList.toggle("hidden", !v) });
+        keepFields.keep_frequent.el.classList.toggle("hidden", !V.frequent);
+        const verBox = h("div", { class: "form" }, frequent.el, h("div", { class: "label" }, "How many versions to keep"),
+            h("div", { class: "grid-3" }, Object.values(keepFields).map(f => f.el)));
+        const snapOn = C.toggle({ label: "Keep scheduled versions", checked: V.snapshots, onChange: v => verBox.classList.toggle("hidden", !v),
+            hint: "Read-only snapshots of the whole share. Users and ransomware cannot change or delete them; Windows shows them under Previous Versions." });
+        verBox.classList.toggle("hidden", !V.snapshots);
+        let verOk = null;
+        async function checkVersions() {
+            const p = path.get();
+            if (!p.startsWith("/")) { verHint.textContent = "Needs a ZFS dataset or a Btrfs subvolume."; verOk = null; return; }
+            try {
+                const r = await SH.call("versions-check", { path: p });
+                verOk = r.supported;
+                snapOn.setDisabled(!r.supported && !snapOn.get());
+                verHint.className = "hint" + (r.supported ? "" : " text-warn");
+                verHint.textContent = r.supported ? `Possible here: ${r.method === "zfs" ? "ZFS snapshots" : "Btrfs read-only snapshots"}.` : "Not possible for this folder: " + r.reason;
+            } catch (e) { verOk = null; verHint.textContent = e.message; }
+        }
 
         // NFS
         const nfsClients = nfsClientsEditor(s.nfs.clients);
@@ -220,15 +258,17 @@
             smb: h("div", { class: "form" },
                 C.fieldset("Access", guest.el, browse.el),
                 C.fieldset("Apple macOS", tm.el, tmSize.el),
-                C.fieldset("Data protection", recycle.el, recycleDays.el, shadow.el),
+                C.fieldset("Data protection", recycle.el, recycleBox, shadow.el),
                 C.fieldset("Windows", acls.el)),
             nfs: h("div", { class: "form" }, h("p", { class: "muted" }, "Machines allowed to mount this folder. Each line can have its own options."), nfsClients.el),
+            versions: h("div", { class: "form" }, snapOn.el, verHint, verBox,
+                C.alert("info", "Deleted files", "Files deleted over SMB are kept by the recycle bin (SMB tab), which works on every filesystem. Restore versions and deleted files from Shares → Versions.")),
             ftp: h("div", { class: "form" }, ftpRo.el, ftpPath,
                 h("p", { class: "muted small" }, "FTP users log in with their normal password and are jailed: they only see the shares they have access to. Require FTPS under Settings → FTP.")),
         };
         const tabItems = [
             { id: "general", label: "General" }, { id: "access", label: "Access" },
-            { id: "smb", label: "SMB" }, { id: "nfs", label: "NFS" }, { id: "ftp", label: "FTP" },
+            { id: "smb", label: "SMB" }, { id: "nfs", label: "NFS" }, { id: "ftp", label: "FTP" }, { id: "versions", label: "Versions" },
         ];
         const panelBox = h("div", { class: "tab-panel", role: "tabpanel" });
         let currentTab = "general";
@@ -246,7 +286,9 @@
         show("general");
         checkQuota();
         const pathSet = path.set;
-        path.set = v => { pathSet(v); checkQuota(); };
+        path.set = v => { pathSet(v); checkQuota(); checkVersions(); };
+        path.input.addEventListener("change", checkVersions);
+        checkVersions();
 
         const modal = C.formModal({
             title: isNew ? "Add share" : `Edit share ${originalName}`,
@@ -260,13 +302,17 @@
                 if (quotaField.get() && !/^\d+(\.\d+)?\s*[KMGTPkmgtp]?$/.test(quotaField.get())) { show("general"); quotaField.setError("Use a size like 500G or 2T."); return false; }
                 if (quotaField.get() && quotaOk === false) { show("general"); quotaField.setError("This folder does not support size limits - see the note below."); return false; }
                 if (recycle.get() && !/^\d{1,4}$/.test(String(recycleDays.get()))) { show("smb"); recycleDays.setError("Enter a number of days."); return false; }
+                if (recycle.get() && !/^\d{1,4}$/.test(String(recycleVersions.get()))) { show("smb"); recycleVersions.setError("Enter a number."); return false; }
+                for (const f of Object.values(keepFields)) if (snapOn.get() && !/^\d{1,4}$/.test(String(f.get()))) { show("versions"); f.setError("Enter a number."); return false; }
+                if (snapOn.get() && verOk === false) { show("versions"); throw new Error("Scheduled versions are not possible for this folder - see the Versions tab."); }
                 const payload = {
                     name: name.get(),
                     original_name: originalName,
                     share: {
                         path: path.get(), comment: comment.get(),
                         access: { users: users.get(), groups: groups.get(), read_only: readOnly.get() },
-                        smb: { enabled: smbOn.get(), guest_ok: guest.get(), browseable: browse.get(), time_machine: tm.get(), time_machine_max_size: tmSize.get(), recycle: recycle.get(), recycle_days: recycleDays.get() || 0, shadow_copies: shadow.get(), windows_acls: acls.get() },
+                        smb: { enabled: smbOn.get(), guest_ok: guest.get(), browseable: browse.get(), time_machine: tm.get(), time_machine_max_size: tmSize.get(), recycle: recycle.get(), recycle_days: recycleDays.get() || 0, recycle_protect: recycleProtect.get(), recycle_versions: recycleVersions.get() || 0, shadow_copies: shadow.get(), windows_acls: acls.get() },
+                        versioning: Object.assign({ snapshots: snapOn.get(), frequent: frequent.get() }, Object.fromEntries(Object.entries(keepFields).map(([k, f]) => [k, f.get() || 0]))),
                         nfs: { enabled: nfsOn.get(), clients: nfsOn.get() ? nfsClients.get().filter(c => c.host) : [] },
                         ftp: { enabled: ftpOn.get(), read_only: ftpRo.get() },
                         quota: { limit: quotaField.get() },

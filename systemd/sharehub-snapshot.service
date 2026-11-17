@@ -1,0 +1,9 @@
+[Unit]
+Description=ShareHub: take scheduled share versions and apply retention
+Documentation=https://github.com/Ancyent/cockpit_sharehub
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/sharehub/sharehub-helper snapshot-run
+Nice=10
+IOSchedulingClass=idle

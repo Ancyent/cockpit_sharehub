@@ -15,7 +15,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 if [[ -d /run/systemd/system ]]; then
-    systemctl disable --now sharehub-recycle.timer 2>/dev/null || true
+    systemctl disable --now sharehub-recycle.timer sharehub-snapshot.timer 2>/dev/null || true
 fi
 make uninstall
 

@@ -15,3 +15,4 @@ override_dh_auto_install:
 
 override_dh_installsystemd:
 	dh_installsystemd --name=sharehub-recycle sharehub-recycle.timer
+	dh_installsystemd --name=sharehub-snapshot sharehub-snapshot.timer

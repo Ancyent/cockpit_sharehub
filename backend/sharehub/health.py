@@ -70,6 +70,7 @@ def features(state):
         "versions": any(x["smb"]["enabled"] and x["smb"]["shadow_copies"] for x in shares),
         "quota": any(x["quota"]["limit"] for x in shares),
         "recycle": any(x["smb"]["enabled"] and x["smb"]["recycle"] for x in shares),
+        "snapshots": any(x["versioning"]["snapshots"] for x in shares),
     }
     return [
         {"id": "smb", "label": "SMB file server", "core": True, "requires": [["samba"], ["samba-common-bin"]],
@@ -99,6 +100,9 @@ def features(state):
                     if container_type() else "")},
         {"id": "recycle", "label": "Recycle bin cleanup", "requires": [], "services": ["sharehub-recycle.timer"],
          "in_use": uses["recycle"]},
+        {"id": "snapshots", "label": "Scheduled versions", "requires": [["zfsutils-linux", "btrfs-progs"]],
+         "services": ["sharehub-snapshot.timer"], "in_use": uses["snapshots"],
+         "note": "Read-only versions every 15 minutes or hourly, on ZFS datasets or Btrfs subvolumes."},
     ]
 
 
@@ -141,6 +145,22 @@ def _checks(fid, state):
                 ok = fs in ("zfs", "btrfs")
                 out.append({"label": f"{name}: snapshot-capable filesystem", "ok": ok, "fix": None,
                             "detail": f"{share['path']} is on {fs or 'unknown'}."})
+    if fid == "snapshots":
+        from . import snapshots
+        import datetime
+        for name, share in state["shares"].items():
+            if not share["versioning"]["snapshots"]:
+                continue
+            info = snapshots.detect(share["path"])
+            if not info["supported"]:
+                out.append({"label": f"{name}: snapshots possible", "ok": False, "fix": None, "detail": info["reason"]})
+                continue
+            snaps = snapshots.list_snapshots(share["path"])
+            limit = datetime.timedelta(minutes=45 if share["versioning"]["frequent"] else 150)
+            fresh = bool(snaps) and datetime.datetime.now(datetime.timezone.utc) - snaps[0]["time"] < limit
+            out.append({"label": f"{name}: recent version", "ok": fresh, "fix": None,
+                        "detail": f"{len(snaps)} versions, latest {snaps[0]['time'].astimezone().strftime('%Y-%m-%d %H:%M')}"
+                        if snaps else "No version yet - the timer runs every 15 minutes."})
     if fid == "recycle" and has_systemd():
         active, _ = unit_state("sharehub-recycle.timer")
         out.append({"label": "Daily cleanup timer active", "ok": active == "active", "fix": None if active == "active" else "recycle-timer",

@@ -19,11 +19,11 @@ install:
 	install -m 0644 frontend/js/*.js $(PLUGINDIR)/js/
 	install -m 0644 backend/sharehub/*.py $(LIBDIR)/sharehub/
 	install -m 0755 backend/sharehub-helper $(LIBDIR)/sharehub-helper
-	install -m 0644 systemd/sharehub-recycle.service systemd/sharehub-recycle.timer $(UNITDIR)/
+	install -m 0644 systemd/*.service systemd/*.timer $(UNITDIR)/
 
 uninstall:
 	rm -rf $(PLUGINDIR) $(LIBDIR)
-	rm -f $(UNITDIR)/sharehub-recycle.service $(UNITDIR)/sharehub-recycle.timer
+	rm -f $(UNITDIR)/sharehub-*.service $(UNITDIR)/sharehub-*.timer
 
 test:
 	python3 -m pytest -q tests/

@@ -319,3 +319,10 @@ p { margin: 0 0 8px; }
 .icon-preview:empty { display: none; }
 .icon-preview-art { width: 72px; height: 72px; flex: none; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); display: grid; place-items: center; color: var(--primary); }
 .icon-preview .hint { margin-top: 6px; }
+
+/* versions dialog */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; }
+.crumbs .btn-link { padding: 2px 4px; }
+.version-files { max-height: 420px; overflow-y: auto; }
+.align-end { align-items: end; }
+.version-files .btn-link { padding: 0; min-height: 0; }

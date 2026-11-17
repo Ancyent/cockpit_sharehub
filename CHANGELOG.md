@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.0 - 2026-11-18
+
+- **Scheduled versions** per share (Edit → Versions): read-only snapshots every 15 minutes or every hour,
+  with separate retention for 15-minute, hourly, daily, weekly and monthly versions. ZFS datasets use ZFS
+  snapshots; Btrfs subvolumes use read-only snapshots in a hidden `.sharehub-snapshots` folder. Versions
+  appear in Windows under *Previous Versions*, cannot be changed from SMB, NFS or FTP, and are hidden from
+  SMB and FTP browsing. A new `sharehub-snapshot.timer` takes and prunes them every 15 minutes
+- **Protected recycle bin**: deleted files can be hidden from clients (users and ransomware cannot see,
+  change or purge them), with a limit on how many versions of the same file are kept
+- **Versions dialog** (Shares → Versions): pick a version, browse its folders and restore files or folders,
+  or restore deleted files. An existing file is never overwritten; the restored copy gets the version's date
+- Components dashboard: new "Scheduled versions" row with a check that a recent version exists
+
 ## 0.12.0 - 2026-11-17
 
 First field test on Debian 13 (trixie) in a Proxmox LXC container.

@@ -1,3 +1,16 @@
+cockpit-sharehub (0.13.0) unstable; urgency=medium
+
+  * Versioning: scheduled read-only versions of a share (ZFS snapshots or
+    Btrfs read-only subvolumes) every 15 minutes or hourly, with
+    15-minute/hourly/daily/weekly/monthly retention, shown as Windows
+    Previous Versions; new sharehub-snapshot.timer.
+  * Protected recycle bin: hidden from clients, limit on versions kept
+    per deleted file.
+  * Restore dialog: browse versions and deleted files, restore without
+    overwriting current files.
+
+ -- Andrei Prajina <ancyent@xserv.ro>  Wed, 18 Nov 2026 00:30:00 +0200
+
 cockpit-sharehub (0.12.0) unstable; urgency=medium
 
   * Containers: detect LXC/Docker; NFS is marked unsupported and cannot

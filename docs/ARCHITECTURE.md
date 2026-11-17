@@ -12,6 +12,7 @@ Browser ── Cockpit (cockpit-ws) ── cockpit-bridge ──(sudo)── /us
                                                                      ├─ nfs.py        exports + nfs.conf
                                                                      ├─ ftp.py        ProFTPD + bind mounts
                                                                      ├─ quota.py      per-share size limits (ZFS/XFS/ext4/Btrfs)
+                                                                     ├─ snapshots.py  scheduled versions, retention, restore, recycle bin
                                                                      ├─ users.py      users, groups, Samba passdb
                                                                      ├─ ad.py         Active Directory (winbind)
                                                                      ├─ services.py   systemd, sessions, firewall, discovery
@@ -57,6 +58,7 @@ The **Restore** action in the UI re-applies one of those history files.
 | `/etc/fstab` | Bind mounts `<folder> /srv/ftp-shares/<share> none bind,nofail,x-sharehub` | lines tagged `x-sharehub` |
 | `/etc/sharehub/quotas.json` | Applied size limits and XFS/ext4 project IDs (from 20000) | whole file |
 | ZFS `refquota`, XFS/ext4 project quota, Btrfs qgroup limit | Size limits on share folders | set and cleared by ShareHub |
+| ZFS snapshots `<dataset>@sharehub_<UTC time>` / Btrfs read-only subvolumes `<share>/.sharehub-snapshots/sharehub_<UTC time>` | Scheduled versions | created and pruned by `sharehub-snapshot.timer` |
 | `/etc/krb5.conf`, `/etc/nsswitch.conf`, PAM | Only when joining AD (backup in `krb5.conf.sharehub.bak`) | on join/leave |
 
 Registry parameters and shares that ShareHub does not own are left untouched. The Overview offers to import them.
@@ -71,6 +73,15 @@ Registry parameters and shares that ShareHub does not own are left untouched. Th
 - **Previous Versions on Btrfs:** `vfs_snapper`.
 - **Values starting with `-`:** passed to `net conf` after `--`.
 
+### Versioning details
+
+- Snapshot names are `sharehub_%Y.%m.%d-%H.%M.%S` in UTC. Samba's `shadow_copy2` uses the same format, so every version appears in Windows (no per-frequency suffix problem).
+- **Retention** (`snapshots.keep_set`) keeps the newest snapshot, the newest N quarter-hours, and the newest snapshot of each of the last N hours, days, ISO weeks and months. One snapshot can count for several classes.
+- **Btrfs.** Snapshots live in `<share>/.sharehub-snapshots`, vetoed in Samba and denied in ProFTPD. They are read-only subvolumes, so even root gets "Read-only file system".
+- **ZFS.** `<dataset>/.zfs/snapshot` is read-only by design.
+- **Restore** copies with `cp -a --reflink=auto`, so on Btrfs and ZFS block cloning is used where available.
+- **Recycle bin protection** sets `veto files = /.recycle/` (plus the snapshot folder on Btrfs) and a `<Directory …/.recycle>` deny rule in ProFTPD. Extra `Copy #N of …` versions are trimmed by the daily cleanup.
+
 ### FTP details
 
 - ProFTPD jails every user in `/srv/ftp-shares` (`DefaultRoot`).
@@ -84,9 +95,9 @@ Registry parameters and shares that ShareHub does not own are left untouched. Th
 
 | Group | Commands |
 |---|---|
-| Read-only | `status`, `browse`, `quota-check`, `health`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
-| Changes | `install-packages`, `health-fix`, `enable-registry`, `share-save`, `share-delete`, `settings-save`, `apply`, `history-restore`, `user-create`, `user-update`, `user-password`, `user-smb`, `group-create`, `group-update`, `group-delete`, `mkdir`, `ad-join`, `ad-leave`, `service-control`, `disconnect`, `firewall-open`, `migrate-import` |
-| Plain text | `bootstrap` (package setup), `recycle-cleanup` (timer), `--version` |
+| Read-only | `status`, `browse`, `quota-check`, `health`, `versions-check`, `versions-list`, `versions-browse`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
+| Changes | `versions-create`, `versions-restore`, `install-packages`, `health-fix`, `enable-registry`, `share-save`, `share-delete`, `settings-save`, `apply`, `history-restore`, `user-create`, `user-update`, `user-password`, `user-smb`, `group-create`, `group-update`, `group-delete`, `mkdir`, `ad-join`, `ad-leave`, `service-control`, `disconnect`, `firewall-open`, `migrate-import` |
+| Plain text | `bootstrap` (package setup), `recycle-cleanup` (daily timer), `snapshot-run` (15-minute timer), `check` (compatibility report), `--version` |
 
 Example, run as root:
 
