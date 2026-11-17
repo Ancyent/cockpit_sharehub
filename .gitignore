@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.deb
+/build/
+/dist/
+.vscode/
+.idea/
