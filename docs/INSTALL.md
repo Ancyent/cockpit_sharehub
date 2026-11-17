@@ -58,7 +58,7 @@ sudo ./install.sh            # or: sudo ./install.sh --minimal  (Cockpit + Samba
 ### Option C - build the package yourself
 
 ```bash
-sudo apt install debhelper
+sudo apt install build-essential debhelper
 make deb                       # creates dist/cockpit-sharehub_<version>_all.deb
 ```
 
