@@ -274,3 +274,49 @@ def test_quota_commands(monkeypatch, method, expected):
     info = {"path": "/srv/d", "mountpoint": "/srv", "method": method, "dataset": "tank/data"}
     quota._set(info, 1024 ** 3, 20000)
     assert calls == expected
+
+
+# --------------------------------------------------------------------------- components dashboard
+
+from sharehub import health  # noqa: E402
+
+
+class _Proc:
+    def __init__(self, out):
+        self.stdout, self.stderr, self.returncode = out, "", 0
+
+
+def test_package_info_parsing(monkeypatch):
+    def fake_run(cmd, **kw):
+        if cmd[0] == "dpkg-query":
+            return _Proc("samba|installed|2:4.19.5\nwsdd-server|not-installed|\n")
+        return _Proc("samba:\n  Installed: 2:4.19.5\n  Candidate: 2:4.19.5\nwsdd-server:\n  Installed: (none)\n"
+                     "  Candidate: 2:0.7.1-5\nsnapper:\n  Installed: (none)\n  Candidate: (none)\n")
+    monkeypatch.setattr(health, "run", fake_run)
+    monkeypatch.setattr(health, "have", lambda b: True)
+    info = health.package_info(["samba", "wsdd-server", "snapper"])
+    assert info["samba"] == {"installed": "2:4.19.5", "candidate": "2:4.19.5"}
+    assert info["wsdd-server"] == {"installed": None, "candidate": "2:0.7.1-5"}
+    assert info["snapper"] == {"installed": None, "candidate": None}
+
+
+def test_report_flags_missing_package_in_use(monkeypatch, share_dir):
+    st = statemod.empty_state()
+    st["shares"]["Data"] = make_share(share_dir, nfs={"enabled": True, "clients": [{"host": "*"}]})
+    installed = {"samba", "samba-common-bin", "avahi-daemon", "wsdd-server"}
+    monkeypatch.setattr(health, "package_info", lambda names: {
+        n: {"installed": "1.0" if n in installed else None, "candidate": "1.0"} for n in names})
+    monkeypatch.setattr(health, "_service", lambda u: {"unit": u, "installed": None, "active": None, "enabled": None})
+    monkeypatch.setattr(health, "_checks", lambda fid, state: [])
+    feats = {f["id"]: f for f in health.report(st)["features"]}
+    assert feats["nfs"]["status"] == "attention" and feats["nfs"]["installable"] == ["nfs-kernel-server"]
+    assert feats["smb"]["status"] == "ok"
+    assert feats["ad"]["status"] == "absent"
+    assert feats["versions"]["installable"] == ["sanoid"]
+
+
+def test_install_allow_list():
+    with pytest.raises(HelperError, match="cannot be installed"):
+        health.install({"packages": ["netcat-openbsd"]})
+    with pytest.raises(HelperError):
+        health.install({"packages": []})
