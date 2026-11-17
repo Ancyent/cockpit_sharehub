@@ -1,0 +1,19 @@
+{
+    "version": "0.9.0",
+    "name": "sharehub",
+    "require": {
+        "cockpit": "300"
+    },
+    "menu": {
+        "index": {
+            "label": "File Sharing",
+            "order": 55,
+            "keywords": [
+                {
+                    "matches": ["sharehub", "samba", "smb", "cifs", "nfs", "ftp", "ftps", "share", "shares",
+                                "time machine", "active directory", "file sharing"]
+                }
+            ]
+        }
+    }
+}

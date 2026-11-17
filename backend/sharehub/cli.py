@@ -174,7 +174,7 @@ def cmd_settings_save(req):
     st = statemod.load()
     new = copy.deepcopy(st)
     new[section] = statemod.normalize_settings(section, req.get("data") or {})
-    return {"warnings": reconcile.commit(new, f"settings-{section}")}
+    return {"warnings": _relevant(reconcile.commit(new, f"settings-{section}"), new, "")}
 
 
 def cmd_apply(_req):
