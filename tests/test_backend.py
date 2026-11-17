@@ -474,3 +474,193 @@ def test_existing_users_with_dots_or_upper_case_are_managed(monkeypatch):
     # new users keep the strict rule
     with pytest.raises(users.HelperError):
         users.create_user({"name": "Andrei.P", "password": "longenough"})
+
+
+# --------------------------------------------------------------------------- 0.14: features
+
+def test_quota_detect_in_container_points_to_the_host(monkeypatch, tmp_path):
+    from sharehub import quota
+    monkeypatch.setattr(quota, "_mount", lambda p: {"target": "/share", "fstype": "ext4", "options": ["rw"], "source": "/dev/sda1"})
+    monkeypatch.setattr(quota, "container_type", lambda: "lxc")
+    monkeypatch.setattr("sharehub.util.container_type", lambda: "lxc")
+    info = quota.detect(str(tmp_path))
+    assert info["kind"] == "impossible" and not info["supported"]
+    assert "pct set" in info["reason"] and "host" in info["reason"]
+
+
+def test_quota_detect_ext4_asks_for_setup_before_packages(monkeypatch, tmp_path):
+    from sharehub import quota
+    monkeypatch.setattr(quota, "_mount", lambda p: {"target": "/", "fstype": "ext4", "options": ["rw"], "source": "/dev/sda1"})
+    monkeypatch.setattr(quota, "container_type", lambda: "")
+    monkeypatch.setattr(quota, "have", lambda tool: False)
+    info = quota.detect(str(tmp_path))
+    assert info["kind"] == "needs_setup" and "project" in info["reason"]
+
+
+def test_quota_detect_zfs_in_container_without_dev_zfs(monkeypatch, tmp_path):
+    from sharehub import quota
+    monkeypatch.setattr(quota, "_mount", lambda p: {"target": "/share", "fstype": "zfs", "options": [], "source": "rpool/data/subvol-101-disk-1"})
+    monkeypatch.setattr(quota, "container_type", lambda: "lxc")
+    monkeypatch.setattr(quota, "zfs_usable", lambda: False)
+    assert quota.detect(str(tmp_path))["kind"] == "impossible"
+
+
+def test_snapshot_detect_kinds(monkeypatch, tmp_path):
+    from sharehub import snapshots
+    monkeypatch.setattr(snapshots, "container_type", lambda: "")
+    monkeypatch.setattr(snapshots, "fs_type", lambda p: "ext4")
+    assert snapshots.detect(str(tmp_path))["kind"] == "impossible"
+    monkeypatch.setattr(snapshots, "fs_type", lambda p: "btrfs")
+    assert snapshots.detect(str(tmp_path))["kind"] == "needs_setup"   # a folder, not a subvolume
+    monkeypatch.setattr(snapshots, "fs_type", lambda p: "zfs")
+    monkeypatch.setattr(snapshots, "have", lambda tool: False)
+    info = snapshots.detect(str(tmp_path))
+    assert info["kind"] == "needs_install" and info["install"] == "zfsutils-linux"
+
+
+def test_fs_evaluation_groups_shares_and_container_rule(monkeypatch, share_dir):
+    from sharehub import health
+    st = statemod.empty_state()
+    for n in ("a", "b"):
+        st["shares"][n] = make_share(share_dir)
+    fake = {"fstype": "ext4", "kind": "impossible", "reason": "nope", "install": None}
+    monkeypatch.setattr(health.snapshots, "detect", lambda p: dict(fake))
+    ev = health.fs_evaluation(st, "snapshots")
+    assert len(ev["checks"]) == 1 and "2 shares: a, b" in ev["checks"][0]["label"]
+    assert ev["kind"] == "needs_setup"          # a share on ZFS/Btrfs would still work
+    monkeypatch.setattr(health, "container_type", lambda: "lxc")
+    assert health.fs_evaluation(st, "snapshots")["kind"] == "impossible"
+
+
+def test_feature_switches(share_dir):
+    from sharehub import features
+    st = statemod.empty_state()
+    st["shares"]["web"] = make_share(share_dir, ftp={"enabled": True, "read_only": False})
+    with pytest.raises(HelperError, match="still used by: web"):
+        features.apply_choice(st, {"ftp": False}, [])
+    features.apply_choice(st, {"nfs": False, "mdns": False}, [])
+    assert st["features"]["nfs"] is False and st["samba"]["mdns"] is False and st["features"]["configured"]
+    share = make_share(share_dir, nfs={"enabled": True, "clients": [{"host": "10.0.0.0/24"}]})
+    with pytest.raises(HelperError, match="NFS server is turned off"):
+        features.check_share(st, "x", share)
+    with pytest.raises(HelperError):
+        features.apply_choice(st, {"bogus": True}, [])
+
+
+def test_ui_state_mapping():
+    from sharehub.features import ui_state
+    base = {"status": "ok", "installable": [], "packages": [{"satisfied": True}], "setup_needed": False}
+    assert ui_state(base, False) == "off"
+    assert ui_state(dict(base, status="unsupported"), True) == "impossible"
+    assert ui_state(dict(base, installable=["quota"], packages=[{"satisfied": False}]), True) == "needs_install"
+    assert ui_state(dict(base, setup_needed=True), True) == "needs_setup"
+    assert ui_state(base, True) == "ready"
+
+
+def test_existing_state_keeps_every_feature_on():
+    st = statemod.from_dict({"shares": {}, "samba": {"workgroup": "X"}})
+    assert all(st["features"][k] for k in ("nfs", "ftp", "ad", "recycle", "quota", "snapshots", "versions"))
+    assert st["features"]["configured"] is False
+
+
+# --------------------------------------------------------------------------- 0.14: versions at scale
+
+def test_browse_pages_and_filters(tmp_path):
+    from sharehub import snapshots
+    (tmp_path / "zdir").mkdir()
+    (tmp_path / ".sharehub-snapshots").mkdir()
+    for i in range(25):
+        (tmp_path / f"f{i:02d}.txt").write_text("x")
+    page = snapshots.browse(str(tmp_path), "", offset=0, limit=10)
+    assert page["total"] == 26 and page["entries"][0]["name"] == "zdir"   # folders first, snapshot dir hidden
+    assert [e["name"] for e in snapshots.browse(str(tmp_path), "", offset=20, limit=10)["entries"]] == \
+        [f"f{i:02d}.txt" for i in range(19, 25)]
+    assert snapshots.browse(str(tmp_path), "", query="F1")["total"] == 10
+
+
+def test_browse_stops_at_the_deadline(tmp_path):
+    from sharehub import snapshots
+    for i in range(5):
+        (tmp_path / f"f{i}").write_text("x")
+    ticks = iter(range(0, 1000, 6))
+    page = snapshots.browse(str(tmp_path), "", clock=lambda: next(ticks))
+    assert page["truncated"] is True and page["total"] < 5
+
+
+def test_search_limit_and_marks_copies(tmp_path, monkeypatch):
+    from sharehub import snapshots
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    (tmp_path / "a" / "b" / "Copy #2 of report.txt").write_text("x")
+    (tmp_path / "a" / "report.txt").write_text("x")
+    res = snapshots.search(str(tmp_path), "", "report", hide=())
+    assert {r["path"] for r in res["results"]} == {"a/report.txt", "a/b/Copy #2 of report.txt"}
+    copy = next(r for r in res["results"] if r.get("copy"))
+    assert copy["copy"] == 2 and copy["original"] == "report.txt"
+    monkeypatch.setattr(snapshots, "SEARCH_LIMIT", 1)
+    assert snapshots.search(str(tmp_path), "", "report", hide=())["stopped"] == "limit"
+    with pytest.raises(HelperError):
+        snapshots.search(str(tmp_path), "", "r")
+
+
+def test_file_history_keeps_only_distinct_versions(tmp_path, monkeypatch):
+    import datetime
+    from sharehub import snapshots
+    share = tmp_path / "share"
+    share.mkdir()
+    (share / "doc.txt").write_text("v3!")
+    os.utime(share / "doc.txt", (3000, 3000))
+    roots = {}
+    # newest first: same as the current file, then v2 twice (unchanged), then v1
+    for i, (content, mtime) in enumerate([("v3!", 3000), ("v2", 2000), ("v2", 2000), ("v1", 1000)]):
+        root = tmp_path / f"snap{i}"
+        root.mkdir()
+        (root / "doc.txt").write_text(content)
+        os.utime(root / "doc.txt", (mtime, mtime))
+        roots[f"s{i}"] = str(root)
+    t = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    monkeypatch.setattr(snapshots, "list_snapshots", lambda p: [{"name": n, "time": t} for n in roots])
+    monkeypatch.setattr(snapshots, "snapshot_root", lambda p, n: roots[n])
+    versions = snapshots.file_history(str(share), "doc.txt")["versions"]
+    assert [v["snapshot"] for v in versions] == [None, "s1", "s3"]
+
+
+def test_copy_tree_keeps_metadata_and_links(tmp_path):
+    from sharehub import jobs
+    src = tmp_path / "src"
+    (src / "sub").mkdir(parents=True)
+    (src / "sub" / "a.txt").write_text("hello")
+    os.chmod(src / "sub" / "a.txt", 0o640)
+    os.utime(src / "sub" / "a.txt", (1234567, 1234567))
+    os.symlink("sub/a.txt", src / "link")
+
+    class P:
+        files = 0
+
+        def tick(self, files=0, nbytes=0, force=False):
+            P.files += files
+    jobs.copy_tree(str(src), str(tmp_path / "dst"), P())
+    dst = tmp_path / "dst"
+    assert (dst / "sub" / "a.txt").read_text() == "hello"
+    assert oct(os.stat(dst / "sub" / "a.txt").st_mode & 0o777) == "0o640"
+    assert int(os.stat(dst / "sub" / "a.txt").st_mtime) == 1234567
+    assert os.readlink(dst / "link") == "sub/a.txt" and P.files == 2
+
+
+def test_restore_recycle_tree_never_overwrites(tmp_path):
+    from sharehub import jobs
+    share = tmp_path
+    rec = share / ".recycle" / "maria" / "plans"
+    rec.mkdir(parents=True)
+    (rec / "budget.xlsx").write_text("old")
+    (rec / "Copy #1 of notes.txt").write_text("n")
+    (share / "plans").mkdir()
+    (share / "plans" / "budget.xlsx").write_text("current")
+
+    class P:
+        def tick(self, files=0, nbytes=0, force=False):
+            pass
+    assert jobs.restore_recycle_tree(str(share), "maria/plans", P()) == 2
+    names = sorted(os.listdir(share / "plans"))
+    assert "notes.txt" in names and "budget.xlsx" in names and any(n.startswith("budget (restored") for n in names)
+    assert (share / "plans" / "budget.xlsx").read_text() == "current"
+    assert not (share / ".recycle" / "maria" / "plans").exists()

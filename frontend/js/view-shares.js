@@ -144,12 +144,29 @@
         };
     }
 
+    /* A note under a control that redraws itself (and calls onChange) after an install. */
+    function featureSlot(fid, onChange) {
+        const slot = h("div", { class: "feature-slot" });
+        const draw = () => {
+            const note = C.featureNote(fid, SH.feature(fid), { compact: true, onInstalled: () => { draw(); if (onChange) onChange(); } });
+            if (note) slot.replaceChildren(note); else slot.replaceChildren();
+        };
+        draw();
+        return slot;
+    }
+
+    /* Note for a per-folder check result ({kind, reason, install}). */
+    function pathNote(fid, r, onInstalled) {
+        return C.featureNote(fid, { state: r.kind, reason: r.reason, install: r.install ? [r.install] : [] }, { compact: true, onInstalled });
+    }
+
     function editor(originalName, share) {
         const st = SH.store.status;
         const s = JSON.parse(JSON.stringify(share));
         const isNew = !originalName;
-        const ftpReady = st.checks.proftpd_installed;
-        const nfsReady = st.checks.nfs_installed && st.checks.nfs_supported;
+        const ready = id => SH.featureReady(id);
+        // A feature turned off by the admin is hidden, unless this share still uses it.
+        const shown = (id, used) => SH.featureOn(id) || used;
 
         // General
         const name = C.text({ label: "Share name", value: originalName || "", required: true, placeholder: "e.g. accounting",
@@ -159,29 +176,36 @@
         const quotaHint = h("div", { class: "hint", "aria-live": "polite" });
         const quotaField = C.text({ label: "Size limit", value: s.quota.limit, mono: true, placeholder: "e.g. 500G or 2T (empty = no limit)" });
         quotaField.el.appendChild(quotaHint);
+        const showQuota = shown("quota", !!s.quota.limit);
         let quotaOk = null;
         async function checkQuota() {
             const p = path.get();
-            if (!p.startsWith("/")) { quotaHint.textContent = "Enforced by the filesystem (ZFS dataset, XFS/ext4 project quota or Btrfs subvolume)."; quotaOk = null; return; }
-            quotaHint.textContent = "Checking the filesystem…";
+            if (!p.startsWith("/")) { quotaHint.replaceChildren("Enforced by the filesystem (ZFS dataset, XFS/ext4 project quota or Btrfs subvolume)."); quotaOk = null; quotaField.setDisabled(false); return; }
+            quotaHint.replaceChildren("Checking the filesystem…");
             try {
                 const r = await SH.call("quota-check", { path: p });
                 quotaOk = r.supported;
-                quotaHint.className = "hint" + (r.supported ? "" : " text-warn");
-                quotaHint.textContent = r.supported
+                // keep an existing value editable so it can be cleared; otherwise grey the field out
+                quotaField.setDisabled(!r.supported && !quotaField.get());
+                quotaHint.replaceChildren(r.supported
                     ? `Enforced by ${r.method === "zfs" ? "ZFS refquota" : r.method === "btrfs" ? "a Btrfs qgroup (clients see the whole volume size)" : r.method.toUpperCase() + " project quota"}.`
-                    : `Not available here: ${r.reason}`;
-            } catch (e) { quotaOk = null; quotaHint.className = "hint"; quotaHint.textContent = e.message; }
+                    : pathNote("quota", r, checkQuota));
+            } catch (e) { quotaOk = null; quotaHint.replaceChildren(e.message); }
         }
         path.input.addEventListener("change", checkQuota);
         path.input.addEventListener("blur", checkQuota);
         const smbOn = C.toggle({ label: "SMB (Windows, macOS, Linux)", checked: s.smb.enabled, onChange: syncTabs });
-        const nfsOn = C.toggle({ label: "NFS (Linux, VMware, Proxmox)", checked: s.nfs.enabled && nfsReady, onChange: syncTabs,
-            hint: nfsReady ? null : (st.checks.nfs_supported ? "NFS server is not installed - install it from Overview → Components." : st.checks.nfs_unsupported_reason) });
-        nfsOn.setDisabled(!nfsReady);
-        const ftpOn = C.toggle({ label: "FTP / FTPS", checked: s.ftp.enabled && ftpReady, onChange: syncTabs,
-            hint: ftpReady ? null : "ProFTPD is not installed (apt install proftpd-core)." });
-        ftpOn.setDisabled(!ftpReady);
+        const nfsOn = C.toggle({ label: "NFS (Linux, VMware, Proxmox)", checked: s.nfs.enabled && ready("nfs"), onChange: syncTabs });
+        const ftpOn = C.toggle({ label: "FTP / FTPS", checked: s.ftp.enabled && ready("ftp"), onChange: syncTabs });
+        const syncProtocols = () => {
+            nfsOn.setDisabled(!ready("nfs"));
+            ftpOn.setDisabled(!ready("ftp"));
+            tabs.setGreyed("nfs", !ready("nfs"));
+            tabs.setGreyed("ftp", !ready("ftp"));
+            show(currentTab);
+        };
+        const nfsSlot = featureSlot("nfs", syncProtocols);
+        const ftpSlot = featureSlot("ftp", syncProtocols);
 
         // Access
         const users = C.multiSelect({ label: "Allowed users", options: principalOptions(st.users), selected: s.access.users, placeholder: "Search users…", emptyText: "No users yet - create them under Users & Groups" });
@@ -204,10 +228,11 @@
         const recycle = C.toggle({ label: "Recycle bin", checked: s.smb.recycle, onChange: v => recycleBox.classList.toggle("hidden", !v),
             hint: "Files deleted over SMB are kept in .recycle/<user> inside the share instead of disappearing." });
         recycleBox.classList.toggle("hidden", !s.smb.recycle);
-        const shadowHint = st.checks.sanoid_installed || st.checks.zfs_auto_snapshot_installed || st.checks.snapper_installed
-            ? "Windows shows snapshots of this folder under Properties → Previous Versions. Needs ZFS or Btrfs snapshots."
-            : "Needs ZFS snapshots (sanoid or zfs-auto-snapshot) or Btrfs snapshots (snapper). None of these tools is installed.";
-        const shadow = C.toggle({ label: "Previous Versions", checked: s.smb.shadow_copies, hint: shadowHint });
+        const shadow = C.toggle({ label: "Previous Versions from external snapshots", checked: s.smb.shadow_copies,
+            hint: "Windows shows snapshots made by sanoid, zfs-auto-snapshot or snapper under Properties → Previous Versions. ShareHub's own scheduled versions are set on the Versions tab." });
+        const syncShadow = () => shadow.setDisabled(!ready("versions") && !shadow.get());
+        syncShadow();
+        const shadowSlot = featureSlot("versions", syncShadow);
         const acls = C.toggle({ label: "Windows ACLs", checked: s.smb.windows_acls, hint: "Let Windows clients set detailed permissions (stored as extended attributes). Leave off for simple POSIX permissions." });
 
         // Versions
@@ -229,16 +254,20 @@
             hint: "Read-only snapshots of the whole share. Users and ransomware cannot change or delete them; Windows shows them under Previous Versions." });
         verBox.classList.toggle("hidden", !V.snapshots);
         let verOk = null;
+        const verSettings = h("div", { class: "form" }, snapOn.el, verBox);
+        const verArea = h("div", {}, verSettings);
         async function checkVersions() {
             const p = path.get();
-            if (!p.startsWith("/")) { verHint.textContent = "Needs a ZFS dataset or a Btrfs subvolume."; verOk = null; return; }
+            if (!p.startsWith("/")) { verHint.replaceChildren("Needs a ZFS dataset or a Btrfs subvolume."); verOk = null; return; }
             try {
                 const r = await SH.call("versions-check", { path: p });
                 verOk = r.supported;
                 snapOn.setDisabled(!r.supported && !snapOn.get());
-                verHint.className = "hint" + (r.supported ? "" : " text-warn");
-                verHint.textContent = r.supported ? `Possible here: ${r.method === "zfs" ? "ZFS snapshots" : "Btrfs read-only snapshots"}.` : "Not possible for this folder: " + r.reason;
-            } catch (e) { verOk = null; verHint.textContent = e.message; }
+                tabs.setGreyed("versions", !r.supported);
+                verHint.replaceChildren(r.supported ? `Possible here: ${r.method === "zfs" ? "ZFS snapshots" : "Btrfs read-only snapshots"}.` : "");
+                // greyed but still visible, so the admin sees what the tab would offer and why it cannot
+                verArea.replaceChildren(r.supported || snapOn.get() ? verSettings : C.greyed(verSettings, pathNote("snapshots", r, checkVersions)));
+            } catch (e) { verOk = null; verHint.replaceChildren(e.message); }
         }
 
         // NFS
@@ -251,31 +280,41 @@
         updateFtpPath();
 
         const panels = {
-            general: h("div", { class: "form" }, h("div", { class: "grid-2" }, name.el, comment.el), path.el, quotaField.el,
-                C.fieldset("Publish over", smbOn.el, nfsOn.el, ftpOn.el)),
+            general: h("div", { class: "form" }, h("div", { class: "grid-2" }, name.el, comment.el), path.el, showQuota ? quotaField.el : null,
+                C.fieldset("Publish over", smbOn.el,
+                    shown("nfs", s.nfs.enabled) ? [nfsOn.el, nfsSlot] : null,
+                    shown("ftp", s.ftp.enabled) ? [ftpOn.el, ftpSlot] : null)),
             access: h("div", { class: "form" }, h("div", { class: "grid-2" }, users.el, groups.el), readOnly.el,
                 C.alert("info", "NFS does not use these lists.", "NFS trusts the client machine and maps users by UID/GID. Control NFS access with the client list on the NFS tab and with folder permissions.")),
             smb: h("div", { class: "form" },
                 C.fieldset("Access", guest.el, browse.el),
                 C.fieldset("Apple macOS", tm.el, tmSize.el),
-                C.fieldset("Data protection", recycle.el, recycleBox, shadow.el),
+                C.fieldset("Data protection",
+                    shown("recycle", s.smb.recycle) ? [recycle.el, recycleBox] : null,
+                    shown("versions", s.smb.shadow_copies) ? [shadow.el, shadowSlot] : null),
                 C.fieldset("Windows", acls.el)),
             nfs: h("div", { class: "form" }, h("p", { class: "muted" }, "Machines allowed to mount this folder. Each line can have its own options."), nfsClients.el),
-            versions: h("div", { class: "form" }, snapOn.el, verHint, verBox,
+            versions: h("div", { class: "form" }, verHint, verArea,
                 C.alert("info", "Deleted files", "Files deleted over SMB are kept by the recycle bin (SMB tab), which works on every filesystem. Restore versions and deleted files from Shares → Versions.")),
             ftp: h("div", { class: "form" }, ftpRo.el, ftpPath,
                 h("p", { class: "muted small" }, "FTP users log in with their normal password and are jailed: they only see the shares they have access to. Require FTPS under Settings → FTP.")),
         };
         const tabItems = [
-            { id: "general", label: "General" }, { id: "access", label: "Access" },
-            { id: "smb", label: "SMB" }, { id: "nfs", label: "NFS" }, { id: "ftp", label: "FTP" }, { id: "versions", label: "Versions" },
-        ];
+            { id: "general", label: "General" }, { id: "access", label: "Access" }, { id: "smb", label: "SMB" },
+            shown("nfs", s.nfs.enabled) ? { id: "nfs", label: "NFS", greyed: !ready("nfs") } : null,
+            shown("ftp", s.ftp.enabled) ? { id: "ftp", label: "FTP", greyed: !ready("ftp") } : null,
+            shown("snapshots", V.snapshots) ? { id: "versions", label: "Versions" } : null,
+        ].filter(Boolean);
         const panelBox = h("div", { class: "tab-panel", role: "tabpanel" });
         let currentTab = "general";
         const tabs = C.tabs({ items: tabItems, active: "general", small: true, onChange: id => show(id) });
         function show(id) {
             currentTab = id;
             tabs.select(id);
+            if ((id === "nfs" || id === "ftp") && !ready(id)) {
+                panelBox.replaceChildren(C.greyed(panels[id], C.featureNote(id, SH.feature(id), { onInstalled: syncProtocols })));
+                return;
+            }
             const off = { smb: !smbOn.get(), nfs: !nfsOn.get(), ftp: !ftpOn.get() }[id];
             panelBox.replaceChildren(off ? C.empty(`${id.toUpperCase()} is off for this share. Turn it on in General.`) : panels[id]);
         }
@@ -283,7 +322,7 @@
             if (nfsOn.get() && nfsClients.isEmpty()) nfsClients.add({ host: "" });
             show(currentTab);
         }
-        show("general");
+        syncProtocols();
         checkQuota();
         const pathSet = path.set;
         path.set = v => { pathSet(v); checkQuota(); checkVersions(); };

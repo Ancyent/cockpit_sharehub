@@ -73,10 +73,17 @@ The package then:
 ```bash
 git clone https://github.com/Ancyent/cockpit_sharehub.git
 cd cockpit_sharehub
-sudo ./install.sh            # or: sudo ./install.sh --minimal  (Cockpit + Samba only)
+sudo ./install.sh                                   # asks which features to install
+sudo ./install.sh --features smb,ftp,mdns,wsdd,recycle,snapshots
+sudo ./install.sh --minimal                         # Cockpit + Samba only
+sudo ./install.sh --dry-run --features smb,nfs      # show the packages, change nothing
 ```
 
-`install.sh` installs the packages, runs `make install`, and runs the same setup step as the Debian package.
+Features: `smb` (always), `nfs`, `ftp`, `mdns`, `wsdd`, `netbios`, `ad`, `recycle`, `quota`, `snapshots`, `versions`.
+Without `--features`, a terminal shows a checklist; without a terminal, the defaults are used (everything except
+NetBIOS, Active Directory and external Previous Versions; NFS is skipped in containers). `install.sh` installs only
+the packages of the chosen features (tools for size limits only for filesystems that are mounted), runs
+`make install`, records the choice and runs the same setup step as the Debian package.
 
 ### Option C - build the package yourself
 
@@ -89,7 +96,7 @@ make deb                       # creates dist/cockpit-sharehub_<version>_all.deb
 
 1. Open `https://<server>:9090` and log in with your administrator account.
 2. Click **Limited access** in the top bar and confirm with your password. ShareHub needs administrative access.
-3. Open **File Sharing** in the menu.
+3. Open **File Sharing** in the menu. On a fresh install, **Set up ShareHub** opens: tick the features you want (each shows whether it is possible on this system), confirm the packages to install, done. You can change this later under **Settings → Features**.
 4. On the **Overview** tab, click **Enable registry**. This adds `include = registry` to `[global]` in `/etc/samba/smb.conf`; a backup is kept as `smb.conf.sharehub.bak`. ShareHub stores Samba settings in the Samba registry.
 5. If ShareHub finds shares made by other tools (for example the 45Drives *File Sharing* module), it offers to **Import** them.
 6. Optional: under **Settings → SMB**, check the workgroup, encryption and macOS options.

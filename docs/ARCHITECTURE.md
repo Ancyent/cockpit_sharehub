@@ -12,7 +12,9 @@ Browser ── Cockpit (cockpit-ws) ── cockpit-bridge ──(sudo)── /us
                                                                      ├─ nfs.py        exports + nfs.conf
                                                                      ├─ ftp.py        ProFTPD + bind mounts
                                                                      ├─ quota.py      per-share size limits (ZFS/XFS/ext4/Btrfs)
-                                                                     ├─ snapshots.py  scheduled versions, retention, restore, recycle bin
+                                                                     ├─ snapshots.py  scheduled versions, retention, paged browse, search, history
+                                                                     ├─ jobs.py       background folder restores with progress and cancel
+                                                                     ├─ features.py   feature switches and the per-feature UI state
                                                                      ├─ users.py      users, groups, Samba passdb
                                                                      ├─ ad.py         Active Directory (winbind)
                                                                      ├─ services.py   systemd, sessions, firewall, discovery
@@ -91,13 +93,44 @@ Registry parameters and shares that ShareHub does not own are left untouched. Th
 - Hidden entries: `HideNoAccess` hides shares a user may not enter.
 - Home folders: `/home` is bind-mounted as `/srv/ftp-shares/home`. Rules for `home/*` (deny) and `home/%u` (allow) limit each user to their own home. `DefaultChdir` puts users there at login.
 
+## Features
+
+`features.py` gives every screen the same answer per feature. `health.report(state, light=True)` (no service
+states, no configuration checks) runs inside `status`, so each page gets `status.features[id] = {state, reason,
+install}` with `state` one of `off`, `impossible`, `needs_install`, `needs_setup`, `ready`.
+
+- Admin switches live in `state.json` → `features` (`nfs`, `ftp`, `ad`, `recycle`, `quota`, `snapshots`,
+  `versions`, plus `configured`); mDNS, WS-Discovery and NetBIOS reuse the existing `samba.mdns/wsdd/netbios`.
+  Everything defaults to on, so upgrades change nothing.
+- `apply_choice` refuses to turn off a feature a share still uses; `check_share` refuses a share that uses a
+  feature that is off; `sync_units` stops/starts `nfs-server`, `proftpd` and the two ShareHub timers.
+- Size limits and scheduled versions are evaluated with `quota.detect` / `snapshots.detect` on every share folder
+  (`health.fs_evaluation`), grouped by filesystem. Each `detect` returns `kind` (`ready`, `needs_install` with the
+  package, `needs_setup` with the steps, `impossible`). In a container, ext4/XFS limits and ZFS without `/dev/zfs`
+  are `impossible` with the host-side alternative; outside a container "no folder supports it" is `needs_setup`,
+  because a share on suitable storage would work.
+
+## Versions at scale
+
+- `versions-browse` lists one folder: `scandir`, filter by name, sort folders first, then `lstat` only the
+  requested page (500). It stops after 10 s and returns what it has (`truncated`). The recycle bin uses the same
+  call without a snapshot.
+- `versions-search` walks below the current folder only when asked, up to 200 matches or 15 s.
+- `versions-history` does one `lstat` per snapshot and keeps the versions where size or mtime changed.
+- Folder restores (`versions-restore` on a folder) start `jobs.start`: a transient unit
+  `systemd-run --unit sharehub-job-<id> -p Nice=10 -p IOSchedulingClass=idle sharehub-helper job-run <id>`
+  (or `nice`/`ionice` without systemd). The worker counts the files, then copies with `copy_file_range`
+  (block cloning on Btrfs/XFS/ZFS) keeping owner, mode, times, xattrs and ACLs, writes progress to
+  `/run/sharehub/jobs/<id>.json` every second and stops when `<id>.cancel` appears. Finished jobs are forgotten
+  after an hour.
+
 ## Helper commands
 
 | Group | Commands |
 |---|---|
-| Read-only | `status`, `browse`, `quota-check`, `health`, `versions-check`, `versions-list`, `versions-browse`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
-| Changes | `versions-create`, `versions-restore`, `install-packages`, `health-fix`, `enable-registry`, `share-save`, `share-delete`, `settings-save`, `apply`, `history-restore`, `user-create`, `user-update`, `user-password`, `user-smb`, `group-create`, `group-update`, `group-delete`, `mkdir`, `ad-join`, `ad-leave`, `service-control`, `disconnect`, `firewall-open`, `migrate-import` |
-| Plain text | `bootstrap` (package setup), `recycle-cleanup` (daily timer), `snapshot-run` (15-minute timer), `check` (compatibility report), `--version` |
+| Read-only | `status`, `browse`, `quota-check`, `health`, `versions-check`, `versions-list`, `versions-browse`, `versions-search`, `versions-history`, `jobs`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
+| Changes | `features-set`, `versions-create`, `versions-restore`, `job-cancel`, `install-packages`, `health-fix`, `enable-registry`, `share-save`, `share-delete`, `settings-save`, `apply`, `history-restore`, `user-create`, `user-update`, `user-password`, `user-smb`, `group-create`, `group-update`, `group-delete`, `mkdir`, `ad-join`, `ad-leave`, `service-control`, `disconnect`, `firewall-open`, `migrate-import` |
+| Plain text | `bootstrap` (package setup), `recycle-cleanup` (daily timer), `snapshot-run` (15-minute timer), `check` (compatibility report), `features-init <list>` (install.sh), `job-run <id>` (background job worker), `--version` |
 
 Example, run as root:
 

@@ -11,9 +11,10 @@ import datetime
 import os
 import re
 import shutil
+import time
 
-from .quota import _zfs_dataset
-from .util import HelperError, fs_type, have, mount_source, run
+from .quota import _zfs_dataset, zfs_usable
+from .util import HelperError, container_type, fs_type, have, host_managed_hint, mount_source, run
 
 PREFIX = "sharehub_"
 TIME_FORMAT = "%Y.%m.%d-%H.%M.%S"
@@ -30,22 +31,30 @@ def detect(path):
     """How scheduled versions can be kept for path: {"method": "zfs"|"btrfs"|None, "supported", "reason"}."""
     path = os.path.normpath(path)
     fs = fs_type(path)
+
+    def result(kind, reason=None, install=None, method=None, **extra):
+        return {"method": method, "supported": kind == "ready", "kind": kind, "reason": reason,
+                "install": install, "fstype": fs, **extra}
+
     if fs == "zfs":
+        if container_type() and not zfs_usable():
+            return result("impossible", host_managed_hint(path, "snapshots"))
+        if not have("zfs"):
+            return result("needs_install", "Install zfsutils-linux to take ZFS snapshots.", "zfsutils-linux")
         dataset = _zfs_dataset(path)
         if dataset:
-            return {"method": "zfs", "supported": True, "dataset": dataset, "fstype": fs}
-        return {"method": None, "supported": False, "fstype": fs,
-                "reason": f"{path} is a folder inside a ZFS dataset. Scheduled versions need a dedicated dataset "
-                          "(zfs create <pool>/<name>) mounted at the share path."}
+            return result("ready", method="zfs", dataset=dataset)
+        return result("needs_setup", f"{path} is a folder inside a ZFS dataset. Scheduled versions need a dedicated "
+                                     "dataset (zfs create <pool>/<name>) mounted at the share path.")
     if fs == "btrfs":
-        if os.stat(path).st_ino == 256 and have("btrfs"):
-            return {"method": "btrfs", "supported": True, "fstype": fs}
-        return {"method": None, "supported": False, "fstype": fs,
-                "reason": f"{path} is a folder, not a Btrfs subvolume. Create the share folder with "
-                          "'btrfs subvolume create' to keep scheduled versions."}
-    return {"method": None, "supported": False, "fstype": fs,
-            "reason": f"Scheduled versions need ZFS or Btrfs snapshots; {path} is on {fs or 'an unknown filesystem'}. "
-                      "Deleted files can still be kept by the recycle bin."}
+        if os.stat(path).st_ino != 256:
+            return result("needs_setup", f"{path} is a folder, not a Btrfs subvolume. Create the share folder with "
+                                         "'btrfs subvolume create' to keep scheduled versions.")
+        if not have("btrfs"):
+            return result("needs_install", "Install btrfs-progs to take Btrfs snapshots.", "btrfs-progs")
+        return result("ready", method="btrfs")
+    return result("impossible", f"Scheduled versions need ZFS or Btrfs snapshots; {path} is on "
+                                f"{fs or 'an unknown filesystem'}. Deleted files can still be kept by the recycle bin.")
 
 
 def samba_params(path):
@@ -186,24 +195,131 @@ def _safe_rel(rel):
     return "" if rel == "." else rel
 
 
-def browse(root, rel):
-    """Entries of root/rel: [{"name", "type", "size", "mtime"}], folders first."""
+PAGE_SIZE = 500
+LIST_DEADLINE = 10.0     # seconds a listing may take before it returns what it has
+SEARCH_DEADLINE = 15.0
+SEARCH_LIMIT = 200
+
+
+def _entry(path, name, rel, isdir):
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    out = {"name": name, "path": rel, "type": "dir" if isdir else "file", "size": st.st_size, "mtime": int(st.st_mtime)}
+    m = COPY_RE.match(name)
+    if m and not isdir:
+        out["original"], out["copy"] = m.group(2), int(m.group(1))
+    return out
+
+
+def browse(root, rel, offset=0, limit=PAGE_SIZE, query="", hide=(BTRFS_DIR, RECYCLE_DIR), clock=None):
+    """One page of root/rel, folders first, by name. Only the page is stat()ed, so a folder
+    with hundreds of thousands of files stays cheap; listing stops after LIST_DEADLINE."""
+    clock = clock or time.monotonic
     rel = _safe_rel(rel)
     base = os.path.join(root, rel)
     if not os.path.isdir(base):
-        raise HelperError("Folder not found in this version.")
-    out = []
-    for entry in os.scandir(base):
-        if entry.name in (BTRFS_DIR, RECYCLE_DIR) and not rel:
-            continue
+        raise HelperError("Folder not found.")
+    try:
+        offset = max(0, int(offset or 0))
+        limit = max(1, min(int(limit or PAGE_SIZE), 2000))
+    except (TypeError, ValueError):
+        raise HelperError("Invalid page.")
+    q = str(query or "").strip().lower()
+    started = clock()
+    names, truncated = [], False
+    with os.scandir(base) as it:
+        for e in it:
+            if clock() - started > LIST_DEADLINE:
+                truncated = True
+                break
+            if not rel and e.name in hide:
+                continue
+            if q and q not in e.name.lower():
+                continue
+            try:
+                isdir = e.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            names.append((not isdir, e.name.lower(), e.name, isdir))
+    names.sort()
+    page = []
+    for _f, _l, name, isdir in names[offset:offset + limit]:
+        item = _entry(os.path.join(base, name), name, (rel + "/" if rel else "") + name, isdir)
+        if item:
+            page.append(item)
+    return {"path": rel, "entries": page, "total": len(names), "offset": offset, "limit": limit,
+            "truncated": truncated}
+
+
+def search(root, rel, query, hide=(BTRFS_DIR, RECYCLE_DIR), clock=None):
+    """Find names containing query below root/rel. Explicit action only: stops after
+    SEARCH_LIMIT matches or SEARCH_DEADLINE seconds and says so."""
+    clock = clock or time.monotonic
+    rel = _safe_rel(rel)
+    q = str(query or "").strip().lower()
+    if len(q) < 2:
+        raise HelperError("Type at least 2 characters to search.")
+    started = clock()
+    stack = [rel]
+    results, scanned, stopped = [], 0, None
+    while stack:
+        current = stack.pop()
         try:
-            st = entry.stat(follow_symlinks=False)
+            it = os.scandir(os.path.join(root, current))
         except OSError:
             continue
-        out.append({"name": entry.name, "type": "dir" if entry.is_dir(follow_symlinks=False) else "file",
-                    "size": st.st_size, "mtime": int(st.st_mtime)})
-    out.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
-    return {"path": rel, "entries": out[:5000]}
+        with it:
+            for e in it:
+                scanned += 1
+                if clock() - started > SEARCH_DEADLINE:
+                    stopped = "time"
+                    break
+                if not current and e.name in hide:
+                    continue
+                child = (current + "/" if current else "") + e.name
+                try:
+                    isdir = e.is_dir(follow_symlinks=False)
+                except OSError:
+                    continue
+                if q in e.name.lower():
+                    item = _entry(os.path.join(root, child), e.name, child, isdir)
+                    if item:
+                        results.append(item)
+                    if len(results) >= SEARCH_LIMIT:
+                        stopped = "limit"
+                        break
+                if isdir:
+                    stack.append(child)
+        if stopped:
+            break
+    return {"query": q, "path": rel, "results": results, "scanned": scanned, "stopped": stopped}
+
+
+def file_history(share_path, rel):
+    """Distinct versions of one file or folder across all snapshots (one lstat per snapshot)."""
+    rel = _safe_rel(rel)
+    if not rel:
+        raise HelperError("Choose a file.")
+    out, last = [], None
+    current = os.path.join(share_path, rel)
+    if os.path.lexists(current):
+        st = os.lstat(current)
+        last = (int(st.st_mtime), st.st_size)
+        out.append({"snapshot": None, "time": None, "mtime": last[0], "size": last[1], "current": True})
+    for snap in list_snapshots(share_path):
+        try:
+            st = os.lstat(os.path.join(snapshot_root(share_path, snap["name"]), rel))
+        except OSError:
+            continue
+        sig = (int(st.st_mtime), st.st_size)
+        if sig == last:
+            continue
+        last = sig
+        out.append({"snapshot": snap["name"], "time": snap["time"].isoformat(), "mtime": sig[0], "size": sig[1],
+                    "current": False})
+    return {"path": rel, "versions": out}
 
 
 def _free_name(target, when):
@@ -235,28 +351,18 @@ def restore_from_snapshot(share_path, snapshot, rel):
     return os.path.relpath(target, share_path)
 
 
-def recycle_items(share_path):
-    """Deleted files kept by the recycle bin: [{"id", "path", "user", "deleted", "size"}]."""
-    root = os.path.join(share_path, RECYCLE_DIR)
-    out = []
-    if not os.path.isdir(root):
-        return out
-    for user in sorted(os.listdir(root)):
-        user_root = os.path.join(root, user)
-        if not os.path.isdir(user_root):
-            continue
-        for dirpath, _dirs, files in os.walk(user_root):
-            for f in files:
-                full = os.path.join(dirpath, f)
-                try:
-                    st = os.lstat(full)
-                except OSError:
-                    continue
-                rel = os.path.relpath(full, user_root)
-                out.append({"id": os.path.relpath(full, root), "path": rel, "user": user,
-                            "deleted": int(st.st_mtime), "size": st.st_size})
-    out.sort(key=lambda i: i["deleted"], reverse=True)
-    return out[:5000]
+def recycle_root(share_path):
+    return os.path.join(share_path, RECYCLE_DIR)
+
+
+def recycle_target(share_path, rel, when=None):
+    """Where a file from .recycle/<user>/<rel> goes back to: 'Copy #N of x' becomes x, and an
+    existing file is never overwritten."""
+    folder, base = os.path.split(rel)
+    m = COPY_RE.match(base)
+    if m:
+        base = m.group(2)
+    return _free_name(os.path.join(share_path, folder, base), when or "")
 
 
 def restore_from_recycle(share_path, item_id):
@@ -267,13 +373,8 @@ def restore_from_recycle(share_path, item_id):
     source = os.path.join(share_path, RECYCLE_DIR, item_id)
     if not os.path.isfile(source):
         raise HelperError("That file is no longer in the recycle bin.")
-    rel = parts[1]
-    folder, base = os.path.split(rel)
-    m = COPY_RE.match(base)
-    if m:
-        base = m.group(2)
     when = datetime.datetime.fromtimestamp(os.lstat(source).st_mtime).strftime("%Y-%m-%d %H.%M")
-    target = _free_name(os.path.join(share_path, folder, base), when)
+    target = recycle_target(share_path, parts[1], when)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     shutil.move(source, target)
     return os.path.relpath(target, share_path)

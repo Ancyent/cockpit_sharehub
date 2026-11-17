@@ -1,6 +1,36 @@
 # Changelog
 
-## 0.13.0 - 2026-11-18
+## 0.14.0 - 2026-11-18
+
+- **Choose your features.** A first-run setup (on a fresh install, when no share exists yet) lets you pick NFS,
+  FTP/FTPS, macOS and Windows discovery, NetBIOS, Active Directory, recycle bin, size limits, scheduled versions
+  and external Previous Versions, and installs only the packages they need. Change it any time under
+  **Settings → Features** ("Run setup again" reopens the setup). `install.sh --features smb,ftp,...` does the same
+  from the command line; without arguments it asks in the terminal
+- A feature that is **off** disappears from every screen (tabs, toggles, fields, the Active Directory page). It
+  cannot be turned off while a share uses it; ShareHub lists those shares. Turning NFS, FTP, the recycle bin or
+  scheduled versions off stops and disables their service or timer; turning it on starts it again
+- A feature that **cannot be used** is greyed out everywhere instead of failing on save: the share editor
+  (protocol toggles, Size limit, NFS/FTP/Versions tabs, Previous Versions), Settings (NFS, FTP, discovery) - with
+  the reason, a **Details** link to its row in the Components dashboard and, when packages would make it work,
+  an **Install** button that enables the controls without reloading the page. Values of greyed controls are kept
+- **Size limits and scheduled versions are checked on the real share folders**, grouped by filesystem, in the
+  dashboard and in the editor alike, so both always agree. Inside a container (LXC) ext4/XFS limits and ZFS
+  snapshots are reported as *Not possible here* with the host-side alternative (a Proxmox mount point with a size);
+  outside a container the dashboard says which filesystem setup is missing (new verdict *Needs setup*) instead of
+  offering packages that would not help
+- **Versions and deleted files at scale.** Both tabs browse one folder at a time, 500 entries per page with
+  loading on scroll, a filter for the current folder and an explicit **Search subfolders** (stops after 15 seconds
+  or 200 matches). Opening a view never reads the whole tree. A folder with 60 000 files lists in 0.1 s
+- **History** of a file: every version in which it changed, with Restore
+- **Folder restores run in the background** at low CPU and I/O priority, with progress (files and bytes) and
+  Cancel, in the Versions dialog and on the Overview. Deleted folders can be restored in one step
+- Folder picker: after **New folder…** the new folder is selected and labelled "Folder created", and the label
+  moves to the Folder field it fills (just a highlight when the system asks for reduced motion)
+- Fixed: setting a password, editing or enabling Samba for users created outside ShareHub whose names contain
+  a dot or upper-case letters (e.g. `Andrei.P`)
+
+## 0.13.0 - 2026-11-17
 
 - **Scheduled versions** per share (Edit → Versions): read-only snapshots every 15 minutes or every hour,
   with separate retention for 15-minute, hourly, daily, weekly and monthly versions. ZFS datasets use ZFS

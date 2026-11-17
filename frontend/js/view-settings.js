@@ -65,15 +65,15 @@
         if (!known) MODELS.push({ value: s.macos_model, label: s.macos_model, icon: () => SH.icons.server(), about: "Custom model identifier." });
         const model = C.select({ label: "How Macs show this server in Finder", value: s.macos_model, options: MODELS, onDescribe: drawPreview });
         const mdns = C.toggle({ label: "Announce over mDNS / Bonjour", checked: s.mdns, hint: "Server appears in Finder's sidebar and as a Time Machine destination (avahi-daemon)." });
-        const wsdd = C.toggle({ label: "Announce over WS-Discovery", checked: s.wsdd, hint: st.checks.wsdd_installed ? "Server appears under Network in Windows Explorer." : "Needs wsdd-server or wsdd2 - see Overview → Components. Without it, Windows still reaches shares as \\\\server\\share." });
+        const wsdd = C.toggle({ label: "Announce over WS-Discovery", checked: s.wsdd, hint: "Server appears under Network in Windows Explorer. Without it, Windows still reaches shares as \\\\server\\share." });
         const homes = C.toggle({ label: "Home folders over SMB", checked: s.homes.enabled, hint: "Every user gets \\\\server\\<username> pointing to their home directory." });
         const homesBrowse = C.toggle({ label: "List home folders when browsing", checked: s.homes.browseable });
         return h("div", { class: "form" },
             C.fieldset("Identity", h("div", { class: "grid-2" }, workgroup.el, nbName.el), desc.el, netbios.el),
             C.fieldset("Security", h("div", { class: "grid-3" }, minProto.el, enc.el, signing.el)),
             C.fieldset("Performance", multi.el),
-            C.fieldset("Apple macOS", macos.el, mdns.el, model.el, preview),
-            C.fieldset("Windows", wsdd.el),
+            C.fieldset("Apple macOS", macos.el, mdns.el, s.mdns ? C.featureNote("mdns", null, { compact: true }) : null, model.el, preview),
+            C.fieldset("Windows", wsdd.el, s.wsdd ? C.featureNote("wsdd", null, { compact: true }) : null),
             C.fieldset("Home folders", homes.el, homesBrowse.el),
             saveBar(() => SH.action(() => SH.call("settings-save", { section: "samba", data: {
                 workgroup: adOn ? s.workgroup : workgroup.get(), server_string: desc.get(), netbios_name: nbName.get(), netbios: netbios.get(),
@@ -83,14 +83,45 @@
             } }), { success: "SMB settings saved." })));
     }
 
+    function featuresPanel(st) {
+        const rows = SH.FEATURES.map(f => {
+            const state = SH.feature(f.id);
+            const on = state.state !== "off";
+            const toggle = C.toggle({ label: f.label, checked: on, hint: f.about });
+            const note = on ? C.featureNote(f.id, state, { compact: true }) : null;
+            const badge = !on ? C.badge("Off", "off") : state.state === "ready" ? C.badge("Ready", "on")
+                : C.badge({ impossible: "Not possible here", needs_install: "Needs packages", needs_setup: "Needs setup" }[state.state] || state.state,
+                    state.state === "needs_install" ? "info" : state.state === "needs_setup" ? "warn" : "");
+            return { f, toggle, on, el: h("div", { class: "feature-setting" + (on ? "" : " feature-off") },
+                h("div", { class: "feature-setting-row" }, toggle.el, badge), note) };
+        });
+        const save = async () => {
+            const choice = Object.fromEntries(rows.map(r => [r.f.id, r.toggle.get()]));
+            const stopping = rows.filter(r => r.on && !r.toggle.get() && r.f.stops).map(r => r.f.stops);
+            if (stopping.length) {
+                const ok = await C.confirm({ title: "Turn features off",
+                    message: [`ShareHub will stop and disable: ${stopping.join(", ")}.`, "Their settings are kept; turning the feature back on starts them again."],
+                    confirmLabel: "Turn off", danger: true });
+                if (!ok) return;
+            }
+            await SH.action(() => SH.call("features-set", { features: choice }), { success: "Features saved." });
+        };
+        return h("div", { class: "form" },
+            h("p", { class: "muted" }, "Choose what ShareHub manages on this server. A feature that is off disappears from every screen; one that cannot work here is shown greyed out with the reason."),
+            h("div", { class: "feature-settings" }, rows.map(r => r.el)),
+            h("div", { class: "save-bar" },
+                C.button("Run setup again", () => SH.views.wizard.open(), "secondary"),
+                C.button("Save changes", () => save().catch(() => {}), "primary")));
+    }
+
     function nfsPanel(st) {
         const n = st.state.nfs;
         const v4 = C.toggle({ label: "NFSv4", checked: n.v4, hint: "Recommended. Uses only TCP port 2049." });
         const v3 = C.toggle({ label: "NFSv3", checked: n.v3, hint: "For VMware ESXi older setups and legacy clients. Uses fixed ports 111, 20048 and 32765-32768." });
         const threads = C.text({ label: "Server threads", value: n.threads, mono: true, hint: "8 suits most servers; raise for many busy clients." });
-        if (!st.checks.nfs_supported) return C.alert("info", "NFS is not available on this system.", st.checks.nfs_unsupported_reason);
-        if (!st.checks.nfs_installed) return C.alert("info", "NFS server is not installed.", "Install it from Overview → Components, or with: sudo apt install nfs-kernel-server");
-        return h("div", { class: "form" }, C.fieldset("Versions", v4.el, v3.el), C.fieldset("Performance", threads.el),
+        const form = h("div", { class: "form" }, C.fieldset("Versions", v4.el, v3.el), C.fieldset("Performance", threads.el));
+        if (!SH.featureReady("nfs")) return C.greyed(form, C.featureNote("nfs"));
+        return h("div", { class: "form" }, form,
             saveBar(() => {
                 if (!/^\d{1,3}$/.test(threads.get())) { threads.setError("Enter a number between 1 and 256."); return Promise.resolve(); }
                 return SH.action(() => SH.call("settings-save", { section: "nfs", data: { v3: v3.get(), v4: v4.get(), threads: threads.get() } }), { success: "NFS settings saved." });
@@ -99,7 +130,6 @@
 
     function ftpPanel(st) {
         const f = st.state.ftp;
-        if (!st.checks.proftpd_installed) return C.alert("info", "ProFTPD is not installed.", "Install it with: sudo apt install proftpd-core proftpd-mod-crypto");
         const cert = C.text({ label: "Certificate file", value: f.tls_cert, mono: true });
         const key = C.text({ label: "Private key file", value: f.tls_key, mono: true });
         const tlsBox = h("div", { class: "grid-2" + (f.tls_required ? "" : " hidden") }, cert.el, key.el);
@@ -107,7 +137,9 @@
             hint: "Strongly recommended: plain FTP sends passwords in clear text. The default certificate is self-signed; use your own for production." });
         const ports = C.text({ label: "Passive port range", value: f.passive_ports, mono: true, placeholder: "49152-49200", hint: "Set this when the server is behind a firewall or NAT, and open the same range there." });
         const homes = C.toggle({ label: "Home folders over FTP", checked: f.homes, hint: "Users land in /home/<username> after login and cannot see other homes." });
-        return h("div", { class: "form" }, C.fieldset("Security", tls.el, tlsBox), C.fieldset("Network", ports.el), C.fieldset("Home folders", homes.el),
+        const form = h("div", { class: "form" }, C.fieldset("Security", tls.el, tlsBox, C.featureNote("ftps", null, { compact: true })), C.fieldset("Network", ports.el), C.fieldset("Home folders", homes.el));
+        if (!SH.featureReady("ftp")) return C.greyed(form, C.featureNote("ftp"));
+        return h("div", { class: "form" }, form,
             saveBar(() => {
                 const p = ports.get();
                 const m = p.match(/^(\d{1,5})\s*-\s*(\d{1,5})$/);
@@ -140,12 +172,17 @@
     SH.views.settings = {
         render(root, st) {
             const panel = h("div", { class: "card card-pad" });
-            const tabs = C.tabs({
-                items: [{ id: "smb", label: "SMB" }, { id: "nfs", label: "NFS" }, { id: "ftp", label: "FTP" }, { id: "history", label: "History" }],
-                active: sub, small: true, onChange: id => { sub = id; draw(); },
-            });
+            const items = [
+                { id: "smb", label: "SMB" },
+                SH.featureOn("nfs") ? { id: "nfs", label: "NFS", greyed: !SH.featureReady("nfs") } : null,
+                SH.featureOn("ftp") ? { id: "ftp", label: "FTP", greyed: !SH.featureReady("ftp") } : null,
+                { id: "features", label: "Features" },
+                { id: "history", label: "History" },
+            ].filter(Boolean);
+            if (!items.some(i => i.id === sub)) sub = "smb";
+            const tabs = C.tabs({ items, active: sub, small: true, onChange: id => { sub = id; draw(); } });
             function draw() {
-                panel.replaceChildren({ smb: smbPanel, nfs: nfsPanel, ftp: ftpPanel, history: historyPanel }[sub](st));
+                panel.replaceChildren({ smb: smbPanel, nfs: nfsPanel, ftp: ftpPanel, features: featuresPanel, history: historyPanel }[sub](st));
                 panel.classList.toggle("card", sub !== "history");
             }
             draw();

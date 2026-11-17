@@ -14,12 +14,20 @@ import os
 import re
 import sys
 
-from . import __version__, ad, ftp, health, migrate, paths, quota, reconcile, samba, services, snapshots, users
+from . import __version__, ad, ftp, health, jobs, migrate, paths, quota, reconcile, samba, services, snapshots, users
+from . import features as featmod
 from . import state as statemod
 from .util import HelperError, have, nfs_server_support, read_text, run, wsdd_unit
 
 
 # --------------------------------------------------------------------------- read-only
+
+def _feature_states(state):
+    try:
+        return featmod.states(state, health.report(state, light=True))
+    except Exception as e:  # noqa: BLE001 - the page must load even if a check breaks
+        return {"_error": {"state": "ready", "reason": str(e)}}
+
 
 def cmd_status(_req):
     state = statemod.load()
@@ -35,6 +43,8 @@ def cmd_status(_req):
         "ftp_mounts": sorted(ftp.managed_mounts()),
         "quota_usage": quota.usage(state),
         "versions": _versions_summary(state),
+        "features": _feature_states(state),
+        "jobs": jobs.listing(),
         "checks": {
             "samba_installed": have("net") and os.path.exists(samba.SMB_CONF),
             "samba_version": smb_version,
@@ -118,31 +128,82 @@ def cmd_versions_check(req):
     if not path.startswith("/") or not os.path.isdir(path):
         raise HelperError("Choose an existing folder first.")
     info = snapshots.detect(path)
-    return {k: info.get(k) for k in ("method", "supported", "reason", "fstype")}
+    return {k: info.get(k) for k in ("method", "supported", "reason", "fstype", "kind", "install")}
 
 
 def cmd_versions_list(req):
     name, share = _share(req)
     snaps = snapshots.list_snapshots(share["path"]) if share["versioning"]["snapshots"] or \
         snapshots.detect(share["path"])["supported"] else []
-    recycle = snapshots.recycle_items(share["path"]) if share["smb"]["recycle"] else []
     return {"name": name, "snapshots": [{"name": s["name"], "time": s["time"].isoformat()} for s in snaps],
-            "recycle": recycle, "versioning": share["versioning"], "recycle_enabled": share["smb"]["recycle"]}
+            "versioning": share["versioning"], "recycle_enabled": share["smb"]["enabled"] and share["smb"]["recycle"],
+            "recycle_exists": os.path.isdir(snapshots.recycle_root(share["path"]))}
+
+
+def _browse_root(share, req):
+    """(root, hide) for a request on a version (snapshot) or on the recycle bin (no snapshot)."""
+    if req.get("snapshot"):
+        return snapshots.snapshot_root(share["path"], req.get("snapshot")), (snapshots.BTRFS_DIR, snapshots.RECYCLE_DIR)
+    root = snapshots.recycle_root(share["path"])
+    if not os.path.isdir(root):
+        raise HelperError("The recycle bin is empty.")
+    return root, ()
 
 
 def cmd_versions_browse(req):
     _name, share = _share(req)
-    root = snapshots.snapshot_root(share["path"], req.get("snapshot"))
-    return snapshots.browse(root, req.get("path"))
+    root, hide = _browse_root(share, req)
+    return snapshots.browse(root, req.get("path"), req.get("offset"), req.get("limit"), req.get("query"), hide)
+
+
+def cmd_versions_search(req):
+    _name, share = _share(req)
+    root, hide = _browse_root(share, req)
+    return snapshots.search(root, req.get("path"), req.get("query"), hide)
+
+
+def cmd_versions_history(req):
+    _name, share = _share(req)
+    return snapshots.file_history(share["path"], req.get("path"))
 
 
 def cmd_versions_restore(req):
-    _name, share = _share(req)
+    """Files are restored at once; folders start a background job and return {"job": ...}."""
+    name, share = _share(req)
+    rel = snapshots._safe_rel(req.get("path") or req.get("item"))
     if req.get("snapshot"):
-        restored = snapshots.restore_from_snapshot(share["path"], req.get("snapshot"), req.get("path"))
+        source = os.path.join(snapshots.snapshot_root(share["path"], req.get("snapshot")), rel)
+        if os.path.isdir(source) and not os.path.islink(source):
+            job = jobs.start("restore-snapshot", name, rel, {"share_path": share["path"], "snapshot": req.get("snapshot"), "path": rel})
+            return {"job": job, "warnings": []}
+        restored = snapshots.restore_from_snapshot(share["path"], req.get("snapshot"), rel)
     else:
-        restored = snapshots.restore_from_recycle(share["path"], req.get("item"))
+        source = os.path.join(snapshots.recycle_root(share["path"]), rel)
+        if os.path.isdir(source):
+            if "/" not in rel:
+                raise HelperError("Open a user's folder and restore the files or folders inside it.")
+            job = jobs.start("restore-recycle", name, rel, {"share_path": share["path"], "path": rel})
+            return {"job": job, "warnings": []}
+        restored = snapshots.restore_from_recycle(share["path"], rel)
     return {"restored": restored, "warnings": []}
+
+
+def cmd_jobs(_req):
+    return {"jobs": jobs.listing()}
+
+
+def cmd_job_cancel(req):
+    return {"job": jobs.cancel(req.get("id")), "warnings": []}
+
+
+def cmd_features_set(req):
+    st = statemod.load()
+    new = copy.deepcopy(st)
+    warnings = []
+    featmod.apply_choice(new, req.get("features") or {}, warnings)
+    warnings += reconcile.commit(new, "features")
+    featmod.sync_units(st, new, warnings, installed=lambda u: health._service(u)["installed"])
+    return {"warnings": _relevant(warnings, new, "")}
 
 
 def cmd_versions_create(req):
@@ -156,7 +217,7 @@ def cmd_quota_check(req):
     if not path.startswith("/") or not os.path.isdir(path):
         raise HelperError("Choose an existing folder first.")
     info = quota.detect(path)
-    return {k: info.get(k) for k in ("fstype", "method", "supported", "reason", "mountpoint")}
+    return {k: info.get(k) for k in ("fstype", "method", "supported", "reason", "mountpoint", "kind", "install")}
 
 
 def cmd_health(_req):
@@ -230,6 +291,7 @@ def cmd_share_save(req):
     elif existing:
         raise HelperError(f"A share named '{existing}' already exists.")
     share = statemod.normalize_share(req.get("share") or {}, paths.FTP_ROOT)
+    featmod.check_share(st, name, share)
     clash = [n for n, s in new["shares"].items() if os.path.normpath(s["path"]) == share["path"]
              and s["nfs"]["enabled"] and share["nfs"]["enabled"]]
     if clash:
@@ -347,6 +409,11 @@ COMMANDS = {
     "versions-browse": cmd_versions_browse,
     "versions-restore": cmd_versions_restore,
     "versions-create": cmd_versions_create,
+    "versions-search": cmd_versions_search,
+    "versions-history": cmd_versions_history,
+    "jobs": cmd_jobs,
+    "job-cancel": cmd_job_cancel,
+    "features-set": cmd_features_set,
     "health": cmd_health,
     "install-packages": cmd_install_packages,
     "health-fix": cmd_health_fix,
@@ -378,7 +445,8 @@ COMMANDS = {
     "migrate-detect": cmd_migrate_detect,
     "migrate-import": cmd_migrate_import,
 }
-READ_ONLY = {"status", "browse", "quota-check", "health", "versions-check", "versions-list", "versions-browse", "history", "ad-status", "ad-preflight", "services",
+READ_ONLY = {"status", "browse", "quota-check", "health", "versions-check", "versions-list", "versions-browse",
+             "versions-search", "versions-history", "jobs", "history", "ad-status", "ad-preflight", "services",
              "connections", "firewall-status", "migrate-detect"}
 
 
@@ -403,12 +471,44 @@ def bootstrap(quiet=False):
                     f.write(new)
                 say("Enabled mod_tls in /etc/proftpd/modules.conf")
     if os.path.isdir("/run/systemd/system"):
-        run(["systemctl", "enable", "--now", "sharehub-recycle.timer", "sharehub-snapshot.timer"], check=False)
+        st = statemod.load()
+        timers = [t for fid, t in (("recycle", "sharehub-recycle.timer"), ("snapshots", "sharehub-snapshot.timer"))
+                  if featmod.enabled(st, fid)]
+        if timers:
+            run(["systemctl", "enable", "--now", *timers], check=False)
     say("ShareHub bootstrap complete.")
+
+
+def features_init(csv):
+    """install.sh --features: record the chosen features (no services touched yet)."""
+    wanted = {f.strip() for f in csv.split(",") if f.strip()}
+    unknown = wanted - set(featmod.TOGGLES) - {"smb"}
+    if unknown:
+        print(f"Unknown features: {', '.join(sorted(unknown))}", file=sys.stderr)
+        return 2
+    st = statemod.load()
+    try:
+        featmod.apply_choice(st, {fid: fid in wanted for fid in featmod.TOGGLES}, [])
+    except HelperError as e:
+        print(f"Features not changed: {e}", file=sys.stderr)
+        return 1
+    statemod.save(st, "features")
+    print("Features: " + ", ".join(sorted(wanted | {"smb"})))
+    return 0
 
 
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
+    if command == "job-run" and len(sys.argv) > 2:
+        if os.geteuid() != 0:
+            print("Run as root.", file=sys.stderr)
+            return 1
+        return jobs.run(sys.argv[2])
+    if command == "features-init" and len(sys.argv) > 2:
+        if os.geteuid() != 0:
+            print("Run as root.", file=sys.stderr)
+            return 1
+        return features_init(sys.argv[2])
     if command in ("bootstrap", "recycle-cleanup", "snapshot-run", "check", "--version"):
         if command == "--version":
             print(__version__)

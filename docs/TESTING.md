@@ -5,7 +5,7 @@
 ```bash
 sudo apt install python3-pytest python3-pyflakes nodejs
 make lint    # pyflakes + JavaScript syntax + shell syntax
-make test    # 73 unit tests: validation, Samba/NFS/FTP rendering, import parsing
+make test    # 88 unit tests: validation, rendering, import parsing, features, versions at scale
 ```
 
 CI (`.github/workflows/ci.yml`) runs both on every push and builds the `.deb`. On a `v*` tag the package is attached to the GitHub release.
@@ -32,6 +32,11 @@ Environment: Ubuntu 24.04, Samba 4.19.5, ProFTPD 1.3.8b, nfs-utils 2.6.4, Cockpi
 | ProFTPD validation and rollback | enable TLS without `mod_tls` | Change refused with a clear message; previous config kept |
 | NFS exports | `exportfs -v` after apply | Options rendered as expected, including quoted paths and `all_squash` with anon IDs |
 | Validation | invalid names, paths, NFS hosts, sizes, ports | Rejected with clear messages |
+| Features (0.14.0) | `features-set` / `features-init` on a system with shares; share save with a feature off; UI in Cockpit | Turning off a used feature refused with the share list; share using an off feature refused; NFS tab, Active Directory page and toggles hidden when off |
+| Greyed-out states (0.14.0) | container marker set (simulated LXC) with ext4 and Btrfs shares; Cockpit UI, dark theme | NFS toggle and tab greyed with the reason; ext4 Size limit greyed with the Proxmox mount-point hint; Versions tab greyed on ext4, normal on the Btrfs subvolume; dashboard and editor agree |
+| Versions at scale (0.14.0) | Btrfs share with a 60 000-file folder: browse, paging on scroll, filter, search, history, folder restore job and cancel, recycle folder restore | Page of 500 in 0.1 s; search found 11 matches in 60 310 names; history listed only changed versions; job copied 60 300 files with progress, kept owner/mode/mtime; cancel stopped it and kept the partial copy; recycle folder restored without overwriting |
+| First-run setup and folder animation (0.14.0) | Settings → Features → Run setup again; Browse → New folder in the share editor | Checklist with per-feature state (NFS disabled in a container), package list, finish; new folder selected, "Folder created" moves to the Folder field |
+| `install.sh` (0.14.0) | `--dry-run` with several feature lists, unknown feature, no terminal | Package list matches the features and mounted filesystems; unknown feature exits 2; defaults used without a terminal |
 | Versioning on Btrfs (0.13.0) | loop-mounted Btrfs subvolume share; scheduled run, SMB `allinfo` / `get @GMT-…`, write attempt into a version, restore via helper and UI | Versions created and listed as Previous Versions; old content readable; writes refused (`NT_STATUS_MEDIA_WRITE_PROTECTED`, and "Read-only file system" for root); snapshot folder invisible over SMB; restore without overwrite works |
 | Protected recycle bin (0.13.0) | delete the same file 4 times over SMB, list `.recycle` over SMB, cleanup with limit 3, restore | `.recycle` not reachable over SMB; 3 newest copies kept; restore strips "Copy #N of" and never overwrites |
 | Components dashboard (0.11.0) | removed `wsdd-server` while WS-Discovery is on; installed it from the dashboard in Cockpit | Row flagged "Needs attention" with the missing package; Install completed and the row turned "Ready"; non-allow-listed packages refused |
@@ -56,6 +61,12 @@ Environment: Ubuntu 24.04, Samba 4.19.5, ProFTPD 1.3.8b, nfs-utils 2.6.4, Cockpi
 ## Not yet verified (field checklist)
 
 These need real infrastructure. Run them before calling a deployment production-ready.
+
+### Features and versions at scale (0.14.0)
+- [ ] Fresh install of the .deb on a clean VM: **Set up ShareHub** opens on first visit; chosen packages install
+- [ ] Debian 13 LXC: Size limit greyed with the host hint; dashboard and editor agree; NFS hidden or greyed everywhere
+- [ ] Turn FTP off: `proftpd` stopped and disabled; turn it on again: running
+- [ ] Folder restore of a large folder on ZFS runs as `sharehub-job-*` (`systemctl list-units 'sharehub-job-*'`), Cancel works
 
 ### Systemd / services
 - [ ] After installing the package: `systemctl status smbd nfs-server proftpd sharehub-recycle.timer`

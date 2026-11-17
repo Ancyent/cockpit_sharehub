@@ -10,6 +10,24 @@ ShareHub has five tabs: **Overview**, **Shares**, **Users & Groups**, **Settings
 
 ---
 
+## Features: on, off, greyed out
+
+ShareHub only shows what you use and what can work on this server. Every feature has one of these states, the same on every screen:
+
+| State | Meaning | What you see |
+|---|---|---|
+| Ready | Installed and usable | Normal controls |
+| Needs packages | Possible after installing packages | Greyed out, with **Install** and **Details** |
+| Needs setup | Packages are there, but the storage must be prepared (e.g. a ZFS dataset, `prjquota`) | Greyed out, with the exact steps |
+| Not possible here | Cannot work on this system (e.g. NFS in a container) | Greyed out, with the reason and **Details** |
+| Off | Turned off under **Settings → Features** | Hidden everywhere |
+
+Greyed-out controls keep their values. After **Install** the controls are enabled without reloading the page.
+
+**Settings → Features** turns features on and off. A feature cannot be turned off while a share uses it (ShareHub lists the shares). Turning off NFS, FTP, the recycle bin or scheduled versions stops and disables `nfs-server`, `proftpd`, `sharehub-recycle.timer` or `sharehub-snapshot.timer`; turning it back on starts them again. **Run setup again** opens the first-run setup.
+
+> **Containers (LXC).** Inside a container the host owns the filesystems. Size limits on ext4/XFS and ZFS snapshots must be done on the host: on Proxmox give each share its own mount point with a size (`pct set <id> -mp0 <storage>:<size in GB>,mp=/share/<name>`); clients then see that size. NFS server is not possible in a container.
+
 ## Overview
 
 - **Setup alerts.** These cover the Samba registry, shares found from other tools, and ProFTPD configuration problems.
@@ -22,10 +40,15 @@ ShareHub has five tabs: **Overview**, **Shares**, **Users & Groups**, **Settings
   | Can be used | Everything it needs is installed (and running, when in use). |
   | Needs install | Can be used after installing the listed packages - click **Install**. |
   | Needs attention | In use, but a service is stopped or a check fails. These rows are listed first. |
-  | Not possible here | The system cannot run it, e.g. the NFS server in a container or a package that the distribution does not provide. The row explains why and what to do. |
+  | Needs setup | The packages are there, but the storage is not ready, e.g. share folders on ext4 without project quotas, or folders that are not ZFS datasets / Btrfs subvolumes. The row lists every filesystem your shares use and what each needs. |
+  | Not possible here | The system cannot run it, e.g. the NFS server in a container, size limits on ext4 inside a container, or a package that the distribution does not provide. The row explains why and what to do. |
+  | Turned off | Off under Settings → Features. Listed last. |
+
+  Size limits and scheduled versions are judged on the folders of your shares, so the dashboard and the share editor always give the same answer.
 
   **Details** shows packages (installed and available versions), services (with Start, Restart and Stop) and configuration checks. **Install** runs `apt-get install` for the missing packages (only packages ShareHub knows are allowed). **Fix** repairs known problems: enables the Samba registry, adds the ProFTPD include and mod_tls, or starts the cleanup timer.
 - **Firewall.** The ports your protocols need. Opens them in ufw or firewalld when one is active.
+- **Restores.** Folder restores running in the background (and those finished in the last 15 minutes), with progress and Cancel.
 - **Live connections.** SMB sessions (user, client, protocol, encryption, shares in use) with **Disconnect**, NFSv4 clients, and FTP sessions. The view refreshes every 15 seconds.
 
 ---
@@ -37,7 +60,7 @@ Click **Add share**, or **Edit** on an existing share. The editor has five tabs.
 ### General
 
 - **Share name.** Used as the SMB share name (`\\server\name`) and the FTP folder name (`/name`). Allowed characters: letters, digits, `.`, `_` and `-`. Renaming a share is supported.
-- **Folder.** Type a path or click **Browse…**. The browser can create a folder with an owner, a group and permissions:
+- **Folder.** Type a path or click **Browse…**. The browser can create a folder with an owner, a group and permissions; the new folder is selected and filled into the Folder field:
 
   | Mode | Meaning |
   |---|---|
@@ -121,7 +144,10 @@ Scheduled, read-only versions of the whole share. This needs a ZFS dataset or a 
 ### Restoring files (Shares → Versions)
 
 - **Versions tab.** Pick a version (newest first), browse its folders and click **Restore** on a file or folder. It is copied back to its original place. If a file with that name exists, it is kept, and the restored copy is named `name (restored YYYY-MM-DD HH.MM).ext`. **Create a version now** takes one immediately, for example before a risky change.
-- **Deleted files tab.** Every file deleted over SMB while the recycle bin is on, with who deleted it and when. **Restore** puts it back where it was.
+- **History** (on a file). Every version in which the file changed (size or date), newest first, each with **Restore**. Much faster than opening versions one by one.
+- **Deleted files tab.** Organised like the share: first the users who deleted files, then the original folders. Older copies of a file deleted several times are marked *older copy #N*. **Restore** puts a file back where it was; on a folder it puts back every file inside it.
+- **Large shares.** Only the folder you open is read, 500 entries at a time; more load as you scroll. **Filter this folder** narrows the list by name. **Search subfolders** looks below the current folder and stops after 15 seconds or 200 matches - open a deeper folder to search less.
+- **Folders are restored in the background** at low CPU and disk priority. The progress (files and bytes) shows in the dialog and on the Overview; **Cancel** stops it (what was copied so far stays, under the restored name). You can close the dialog while it runs.
 
 ### FTP
 
@@ -185,6 +211,10 @@ Pick the device type Finder uses for this server: file server (generic, default)
 - **Require FTPS.** Strongly recommended. The default certificate is self-signed. Put your own in `/etc/ssl/` and enter its paths here.
 - **Passive port range.** Needed behind a firewall or NAT. Open the same range there.
 - **Home folders over FTP.** Users land in `/home/<username>` and cannot see other homes.
+
+### Features
+
+See [Features: on, off, greyed out](#features-on-off-greyed-out).
 
 ### History
 

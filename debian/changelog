@@ -1,3 +1,18 @@
+cockpit-sharehub (0.14.0) unstable; urgency=medium
+
+  * Features: choose what ShareHub manages (first-run setup, Settings →
+    Features, install.sh --features); features that are off are hidden.
+  * Unavailable features are greyed out everywhere with the reason, an
+    Install button and a link to the Components dashboard.
+  * Size limits and scheduled versions are checked on the real share
+    folders, including LXC containers (limits set on the host).
+  * Versions and deleted files: folder-by-folder browsing with paging,
+    filter, search, file history and background folder restores.
+  * Folder picker: "Folder created" animation.
+  * Existing users with dots or upper case can be managed.
+
+ -- Andrei Prajina <ancyent@xserv.ro>  Wed, 18 Nov 2026 02:00:00 +0200
+
 cockpit-sharehub (0.13.0) unstable; urgency=medium
 
   * Versioning: scheduled read-only versions of a share (ZFS snapshots or

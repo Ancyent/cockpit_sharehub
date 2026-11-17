@@ -6,7 +6,8 @@ import glob
 import os
 import re
 
-from . import ftp, samba
+from . import features as featmod
+from . import ftp, quota, samba, snapshots
 from .util import (HelperError, container_type, has_systemd, have, nfs_server_support, read_text, run,
                    systemctl, unit_exists, unit_state, wsdd_unit)
 
@@ -54,6 +55,59 @@ def _mod_tls_ok():
     return loaded and bool(glob.glob("/usr/lib/proftpd/mod_tls.so"))
 
 
+FS_TOOLS = {"zfs": "zfsutils-linux", "btrfs": "btrfs-progs", "xfs": "xfsprogs", "ext4": "quota"}
+
+
+def fs_evaluation(state, fid):
+    """Check quota or snapshot support on the real share folders, grouped by filesystem.
+
+    Returns {"packages", "kind", "reason", "checks"}: kind is the best case over all folders
+    (ready > needs_install > needs_setup > impossible)."""
+    detector = quota.detect if fid == "quota" else snapshots.detect
+    paths = {}
+    for name, share in state["shares"].items():
+        if os.path.isdir(share["path"]):
+            paths.setdefault(share["path"], []).append(name)
+    if not paths:  # no shares yet: judge the places shares usually live
+        for candidate in ("/srv", "/"):
+            if os.path.isdir(candidate):
+                paths[candidate] = []
+                break
+    groups = {}
+    for path, names in paths.items():
+        try:
+            info = detector(path)
+        except Exception as e:  # noqa: BLE001 - one odd folder must not break the dashboard
+            info = {"fstype": "", "kind": "impossible", "reason": str(e), "install": None}
+        key = (info.get("fstype") or "unknown", info["kind"], info.get("install"))
+        group = groups.setdefault(key, {"names": [], "reason": info.get("reason"), "method": info.get("method")})
+        group["names"].extend(names)
+    rank = {"ready": 0, "needs_install": 1, "needs_setup": 2, "impossible": 3}
+    ordered = sorted(groups.items(), key=lambda kv: rank[kv[0][1]])
+    if not ordered:
+        return {"packages": [], "kind": "impossible", "reason": "No folder to check.", "checks": []}
+    (best_fs, kind, _install), best = ordered[0]
+    reason = best["reason"]
+    if kind == "impossible" and not container_type():
+        # Not possible for today's folders, but a share on a suitable filesystem would work.
+        kind = "needs_setup"
+        need = "a ZFS dataset or a Btrfs subvolume" if fid == "snapshots" else "ZFS, XFS, ext4 (with project quotas) or Btrfs"
+        reason = f"None of the share folders supports this ({best_fs or 'unknown filesystem'}). Put shares on {need}."
+    packages = []
+    for (fs, k, install), _group in ordered:
+        pkg = install or (FS_TOOLS.get(fs) if k == "ready" else None)
+        if pkg and [pkg] not in packages:
+            packages.append([pkg])
+    checks = []
+    for (fs, k, _install), group in ordered:
+        names = sorted(group["names"])
+        who = (f"{len(names)} share{'s' if len(names) != 1 else ''}: {', '.join(names[:4])}"
+               + (f" +{len(names) - 4}" if len(names) > 4 else "")) if names else "no shares yet"
+        checks.append({"label": f"{fs} ({who})", "ok": k == "ready", "fix": None,
+                       "detail": "Supported." if k == "ready" else group["reason"]})
+    return {"packages": packages, "kind": kind, "reason": reason, "checks": checks}
+
+
 def features(state):
     """Static description of each feature, evaluated against the current state."""
     shares = state["shares"].values()
@@ -91,18 +145,17 @@ def features(state):
                              "reach shares as \\\\server\\share; turn off WS-Discovery under Settings → SMB to clear this."},
         {"id": "ad", "label": "Active Directory", "requires": [["winbind"], ["libnss-winbind"], ["libpam-winbind"], ["krb5-user"]],
          "services": ["winbind"], "in_use": uses["ad"]},
-        {"id": "versions", "label": "Previous Versions (snapshots)", "requires": [["sanoid", "zfs-auto-snapshot", "snapper"]],
+        {"id": "versions", "label": "Previous Versions (external snapshots)", "requires": [["sanoid", "zfs-auto-snapshot", "snapper"]],
          "services": [], "in_use": uses["versions"]},
-        {"id": "quota", "label": "Size limits", "requires": [["zfsutils-linux", "xfsprogs", "quota", "btrfs-progs"]],
-         "services": [], "in_use": uses["quota"],
-         "note": "One tool per filesystem you use: zfsutils-linux (ZFS), xfsprogs (XFS), quota (ext4), btrfs-progs (Btrfs)."
-                 + (" In a container, quotas usually have to be set on the host (e.g. the container's mount point size)."
-                    if container_type() else "")},
+        {"id": "quota", "label": "Size limits", "fs": True, "services": [], "in_use": uses["quota"],
+         "note": "Checked on the folders of your shares. Each filesystem needs its own tool: zfsutils-linux (ZFS), "
+                 "xfsprogs (XFS), quota (ext4), btrfs-progs (Btrfs)."},
         {"id": "recycle", "label": "Recycle bin cleanup", "requires": [], "services": ["sharehub-recycle.timer"],
          "in_use": uses["recycle"]},
-        {"id": "snapshots", "label": "Scheduled versions", "requires": [["zfsutils-linux", "btrfs-progs"]],
+        {"id": "snapshots", "label": "Scheduled versions", "fs": True,
          "services": ["sharehub-snapshot.timer"], "in_use": uses["snapshots"],
-         "note": "Read-only versions every 15 minutes or hourly, on ZFS datasets or Btrfs subvolumes."},
+         "note": "Read-only versions every 15 minutes or hourly, on ZFS datasets or Btrfs subvolumes. "
+                 "Checked on the folders of your shares."},
     ]
 
 
@@ -146,15 +199,12 @@ def _checks(fid, state):
                 out.append({"label": f"{name}: snapshot-capable filesystem", "ok": ok, "fix": None,
                             "detail": f"{share['path']} is on {fs or 'unknown'}."})
     if fid == "snapshots":
-        from . import snapshots
         import datetime
         for name, share in state["shares"].items():
             if not share["versioning"]["snapshots"]:
                 continue
-            info = snapshots.detect(share["path"])
-            if not info["supported"]:
-                out.append({"label": f"{name}: snapshots possible", "ok": False, "fix": None, "detail": info["reason"]})
-                continue
+            if not snapshots.detect(share["path"])["supported"]:
+                continue  # reported by fs_evaluation
             snaps = snapshots.list_snapshots(share["path"])
             limit = datetime.timedelta(minutes=45 if share["versioning"]["frequent"] else 150)
             fresh = bool(snaps) and datetime.datetime.now(datetime.timezone.utc) - snaps[0]["time"] < limit
@@ -193,13 +243,21 @@ def verdict(feature):
         return {"verdict": "no", "text": "Not possible on this system: " + (feature.get("reason") or "")}
     if feature["installable"]:
         return {"verdict": "install", "text": "Can be used after installing " + ", ".join(feature["installable"]) + "."}
+    if feature.get("setup_needed"):
+        return {"verdict": "setup", "text": "Possible after preparing the filesystem: " + (feature.get("reason") or "")}
     if status == "attention":
         return {"verdict": "fix", "text": "Can be used, but needs attention."}
     return {"verdict": "yes", "text": "Can be used on this system."}
 
 
-def report(state):
+def report(state, light=False):
+    """Full dashboard data. light=True skips service states and configuration checks (used by
+    the status call that every screen needs, so it stays fast)."""
     feats = features(state)
+    for f in feats:
+        if f.get("fs"):
+            f["eval"] = fs_evaluation(state, f["id"])
+            f["requires"] = f["eval"]["packages"]
     nfs_ok, nfs_reason = nfs_server_support()
     names = sorted({p for f in feats for alt in f["requires"] for p in alt})
     pkgs = package_info(names)
@@ -209,17 +267,25 @@ def report(state):
         for alternatives in f["requires"]:
             items = [{"name": p, **pkgs.get(p, {"installed": None, "candidate": None})} for p in alternatives]
             groups.append({"satisfied": any(i["installed"] for i in items), "packages": items})
-        services = [_service(u) for u in f["services"]]
-        checks = _checks(f["id"], state)
+        services = [] if light else [_service(u) for u in f["services"]]
+        checks = [] if light else _checks(f["id"], state)
+        ev = f.get("eval")
+        if ev and not light:
+            checks = ev["checks"] + checks
         installed = all(g["satisfied"] for g in groups)
         unavailable = [g for g in groups if not g["satisfied"] and not any(p["candidate"] for p in g["packages"])]
         unsupported = f["id"] == "nfs" and not nfs_ok
         running = all(sv["active"] in ("active", None) for sv in services if sv["installed"] is not False)
         checks_ok = all(c["ok"] for c in checks)
         reason = None
+        setup_needed = False
+        if ev and ev["kind"] == "impossible":
+            unsupported = True
         if unsupported:
-            status, reason = "unsupported", nfs_reason
+            status, reason = "unsupported", (ev["reason"] if ev and ev["kind"] == "impossible" else nfs_reason)
             services = []
+        elif ev and ev["kind"] == "needs_setup":
+            status, reason, setup_needed = ("attention" if f["in_use"] else "warning"), ev["reason"], True
         elif unavailable:
             status = "attention" if f["in_use"] else "unavailable"
             reason = f.get("unavailable_hint") or "Not available in this system's package sources."
@@ -242,10 +308,14 @@ def report(state):
             "id": f["id"], "label": f["label"], "core": bool(f.get("core")), "in_use": f["in_use"],
             "note": f.get("note"), "status": status, "reason": reason, "packages": groups, "services": services,
             "checks": checks, "installable": [] if unsupported else [m for m in missing if m in INSTALLABLE],
+            "setup_needed": setup_needed,
         })
     for item in out:
         item["availability"] = verdict(item)
-    return {"systemd": has_systemd(), "container": container_type(), "system": system_info(), "features": out}
+        item["enabled"] = featmod.enabled(state, item["id"])
+        item["ui"] = featmod.ui_state(item, item["enabled"])
+    return {"systemd": has_systemd(), "container": container_type(), "system": system_info(), "features": out,
+            "configured": state["features"]["configured"]}
 
 
 def text_report(state, url_host=None):
@@ -253,18 +323,20 @@ def text_report(state, url_host=None):
     data = report(state)
     sysinfo = data["system"]
     where = sysinfo["container"] and f"{sysinfo['container']} container" or sysinfo["virtualization"] or "physical or unknown host"
-    marks = {"yes": "[ OK ]", "install": "[ + ]", "fix": "[ !! ]", "no": "[ -- ]"}
+    marks = {"yes": "[ OK ]", "install": "[ + ]", "fix": "[ !! ]", "setup": "[ .. ]", "no": "[ -- ]"}
     lines = ["ShareHub compatibility report", f"System: {sysinfo['os']} ({where}), Samba {sysinfo['samba'] or 'not installed'}", ""]
     width = max(len(f["label"]) for f in data["features"])
     for f in data["features"]:
         a = f["availability"]
         detail = {"yes": "can be used", "fix": "can be used - check the Components page",
                   "install": "install: apt install " + " ".join(f["installable"]),
+                  "setup": "needs filesystem setup - " + (f.get("reason") or ""),
                   "no": (f.get("reason") or "not possible here")}[a["verdict"]]
         lines.append(f"  {marks[a['verdict']]:7}{f['label']:<{width}}  {detail}")
     counts = {v: sum(1 for f in data["features"] if f["availability"]["verdict"] == v) for v in marks}
     lines += ["", f"{counts['yes'] + counts['fix']} of {len(data['features'])} features can be used now, "
-                  f"{counts['install']} after installing packages, {counts['no']} not possible on this system."]
+                  f"{counts['install']} after installing packages, {counts['setup']} after filesystem setup, "
+                  f"{counts['no']} not possible on this system."]
     return "\n".join(lines)
 
 

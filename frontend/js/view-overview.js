@@ -48,21 +48,25 @@
         yes: ["on", "Can be used"],
         fix: ["danger", "Needs attention"],
         install: ["info", "Needs install"],
+        setup: ["warn", "Needs setup"],
         no: ["", "Not possible here"],
     };
 
     function systemSummary(data) {
         const s = data.system;
         const env = s.container ? `${s.container} container` : s.virtualization ? `virtual machine (${s.virtualization})` : "physical server";
-        const count = v => data.features.filter(f => f.availability.verdict === v).length;
+        const count = v => data.features.filter(f => f.enabled && f.availability.verdict === v).length;
+        const off = data.features.filter(f => !f.enabled).length;
         const usable = count("yes") + count("fix");
         const item = (label, value) => h("div", { class: "sys-item" }, h("div", { class: "muted small" }, label), h("div", { class: "strong" }, value));
         return h("div", { class: "sysinfo" },
             h("div", { class: "sys-items" }, item("System", s.os), item("Runs as", env), item("Samba", s.samba || "not installed"), item("Kernel", s.kernel)),
             h("div", { class: "sys-verdict" },
-                h("span", { class: "sys-big" }, `${usable} of ${data.features.length}`), " features can be used on this system",
+                h("span", { class: "sys-big" }, `${usable} of ${data.features.length - off}`), " features can be used on this system",
                 h("div", { class: "badges" },
                     count("install") ? C.badge(`${count("install")} after installing packages`, "info") : null,
+                    count("setup") ? C.badge(`${count("setup")} need filesystem setup`, "warn") : null,
+                    off ? C.badge(`${off} turned off`, "off") : null,
                     count("no") ? C.badge(`${count("no")} not possible here`) : null,
                     count("fix") ? C.badge(`${count("fix")} need attention`, "danger") : null)));
     }
@@ -135,15 +139,16 @@
 
     function componentsCard(data) {
         const order = { attention: 0, warning: 1, ok: 2, absent: 3, unavailable: 4, unsupported: 5 };
-        const feats = data.features.slice().sort((a, b) => (order[a.status] - order[b.status]) || (b.in_use - a.in_use));
+        const feats = data.features.slice().sort((a, b) => (b.enabled - a.enabled) || (order[a.status] - order[b.status]) || (b.in_use - a.in_use));
+        if (SH.focusComponent) { expanded.add(SH.focusComponent); }
         const rows = feats.map(f => {
             const [kind] = STATUS[f.status];
-            const [vKind, vText] = VERDICT[f.availability.verdict];
+            const [vKind, vText] = f.enabled ? VERDICT[f.availability.verdict] : ["off", "Turned off"];
             const open = expanded.has(f.id);
             const detailsId = "feat-" + f.id;
             const stoppedUnits = f.services.filter(s => s.installed && s.active !== "active");
             const actions = [];
-            if (f.installable.length) actions.push(C.button("Install", () => installPackages(f), f.in_use || f.core ? "primary" : "secondary", { class: "btn btn-sm " + (f.in_use || f.core ? "btn-primary" : "btn-secondary") }));
+            if (f.installable.length && f.enabled) actions.push(C.button("Install", () => installPackages(f), f.in_use || f.core ? "primary" : "secondary", { class: "btn btn-sm " + (f.in_use || f.core ? "btn-primary" : "btn-secondary") }));
             if (f.in_use && stoppedUnits.length && !f.installable.length) actions.push(C.button("Start", async () => { for (const s of stoppedUnits) await ctl(s.unit, "enable"); }, "secondary", { class: "btn btn-sm btn-secondary" }));
             f.checks.filter(c => !c.ok && c.fix).slice(0, 1).forEach(c => actions.push(C.button("Fix", () => fix(c.fix, c.label), "secondary", { class: "btn btn-sm btn-secondary" })));
             const toggle = h("button", { type: "button", class: "btn btn-link", "aria-expanded": String(open), "aria-controls": detailsId }, open ? "Hide details" : "Details");
@@ -156,7 +161,7 @@
                 details.classList.toggle("hidden", !now);
                 if (now && !details.firstChild) details.appendChild(featureDetails(f));
             });
-            return h("div", { class: "feature feature-" + f.status },
+            return h("div", { class: "feature feature-" + (f.enabled ? f.status : "off"), id: "component-" + f.id },
                 h("div", { class: "feature-row" },
                     h("span", { class: "dot dot-" + (kind === "warn" ? "warn" : kind), "aria-hidden": "true" }),
                     h("div", { class: "feature-main" },
@@ -219,6 +224,11 @@
         if (!liveBox) return;
         try {
             liveBox.services.replaceChildren(componentsCard(await SH.call("health")));
+            if (SH.focusComponent) {
+                const el = document.getElementById("component-" + SH.focusComponent);
+                SH.focusComponent = null;
+                if (el) { el.scrollIntoView({ block: "center", behavior: SH.reducedMotion() ? "auto" : "smooth" }); el.classList.add("focus-flash"); }
+            }
         } catch (e) {
             liveBox.services.replaceChildren(C.alert("danger", "Could not check components.", e.message));
         }
@@ -246,6 +256,7 @@
             SH.fill(root,
                 h("div", { class: "alerts" }, setupAlerts(st)),
                 counters(st),
+                st.jobs.some(SH.views.jobs.recent) ? card("Restores", SH.views.jobs.box(), null) : null,
                 card("Components", liveBox.services, C.button("Check again", loadHealth, "link")),
                 h("div", { class: "grid-cards" },
                     card("Live connections", liveBox.connections, C.button("Refresh", loadLive, "link")),

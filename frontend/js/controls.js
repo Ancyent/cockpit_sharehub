@@ -81,7 +81,7 @@
 
     /* ---------------------------------------------------------------- checkbox */
 
-    C.checkbox = function ({ label, checked, onChange, description }) {
+    C.checkbox = function ({ label, checked, onChange, description, disabled }) {
         const id = SH.id("cb");
         const box = h("button", { type: "button", role: "checkbox", class: "cb", id, "aria-checked": String(!!checked), "aria-labelledby": id + "-lbl" },
             h("span", { class: "cb-mark", "aria-hidden": "true" }, "✓"));
@@ -90,8 +90,14 @@
                 description ? h("div", { class: "hint" }, description) : null));
         const get = () => box.getAttribute("aria-checked") === "true";
         box.addEventListener("click", () => { box.setAttribute("aria-checked", String(!get())); if (onChange) onChange(get()); });
-        row.querySelector(".toggle-label").addEventListener("click", () => box.click());
-        return { el: row, get };
+        row.querySelector(".toggle-label").addEventListener("click", () => { if (!box.disabled) box.click(); });
+        const api = {
+            el: row, get,
+            set: v => box.setAttribute("aria-checked", String(!!v)),
+            setDisabled(v) { box.disabled = !!v; row.classList.toggle("disabled", !!v); },
+        };
+        if (disabled) api.setDisabled(true);
+        return api;
     };
 
     /* ---------------------------------------------------------------- listbox popup (shared) */
@@ -284,6 +290,7 @@
                 type: "button", role: "tab", class: "tab", id: "tab-" + it.id,
                 "aria-selected": String(it.id === active), tabindex: it.id === active ? "0" : "-1",
             }, it.label, it.badge ? h("span", { class: "tab-badge" }, it.badge) : null);
+            if (it.greyed) b.classList.add("tab-greyed");
             b.addEventListener("click", () => select(it.id, true));
             b.addEventListener("keydown", ev => {
                 const i = items.findIndex(x => x.id === it.id);
@@ -304,7 +311,10 @@
             });
             if (fire && onChange) onChange(id);
         }
-        return { el: bar, select };
+        return {
+            el: bar, select,
+            setGreyed(id, v) { const i = items.findIndex(x => x.id === id); if (i >= 0) buttons[i].classList.toggle("tab-greyed", !!v); },
+        };
     };
 
     /* ---------------------------------------------------------------- modal + confirm */
@@ -393,11 +403,47 @@
         const row = h("div", { class: "input-row" });
         parent.insertBefore(row, field.input.nextSibling);
         row.append(field.input, browse);
-        browse.addEventListener("click", () => openBrowser(field.get() || "/", path => field.set(path)));
+        browse.addEventListener("click", () => openBrowser(field.get() || "/", path => field.set(path), field.input));
         return field;
     };
 
-    function openBrowser(start, onPick) {
+    /* A new folder is selected, labelled "Folder created", then the label flies to the
+     * path field it fills (only highlights when the system asks for reduced motion). */
+    function celebrate(item, path, close, onPick, target) {
+        const badge = h("span", { class: "created-badge" }, "Folder created");
+        item.classList.add("is-new", "is-selected");
+        item.setAttribute("aria-selected", "true");
+        item.appendChild(badge);
+        item.scrollIntoView({ block: "nearest" });
+        const flash = () => {
+            if (!target) return;
+            target.classList.remove("flash");
+            void target.offsetWidth; // restart the animation
+            target.classList.add("flash");
+            setTimeout(() => target.classList.remove("flash"), 1600);
+        };
+        setTimeout(() => {
+            const from = badge.getBoundingClientRect();
+            close();
+            onPick(path);
+            if (SH.reducedMotion() || !target || !from.width) { flash(); return; }
+            const ghost = h("div", { class: "ghost-chip", "aria-hidden": "true" }, "Folder created");
+            ghost.style.left = from.left + "px";
+            ghost.style.top = from.top + "px";
+            document.body.appendChild(ghost);
+            const to = target.getBoundingClientRect();
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                ghost.classList.add("flying");
+                ghost.style.transform = `translate(${to.left + 12 - from.left}px, ${to.top + to.height / 2 - from.top - 11}px) scale(0.85)`;
+            }));
+            let done = false;
+            const finish = () => { if (done) return; done = true; ghost.remove(); flash(); };
+            ghost.addEventListener("transitionend", finish);
+            setTimeout(finish, 900);
+        }, SH.reducedMotion() ? 900 : 750);
+    }
+
+    function openBrowser(start, onPick, target) {
         let current = start;
         const pathLabel = h("div", { class: "browser-path mono" });
         const list = h("ul", { class: "browser-list", role: "listbox", "aria-label": "Folders" });
@@ -414,7 +460,7 @@
                 if (data.parent !== null) items.push({ name: "..", path: data.parent, up: true });
                 data.dirs.forEach(d => items.push({ name: d, path: (current === "/" ? "" : current) + "/" + d }));
                 list.replaceChildren(...items.map(it => {
-                    const li = h("li", { role: "option", tabindex: "0", class: "browser-item" + (it.up ? " up" : "") },
+                    const li = h("li", { role: "option", tabindex: "0", class: "browser-item" + (it.up ? " up" : ""), "data-name": it.up ? null : it.name },
                         h("span", { class: "folder-icon", "aria-hidden": "true" }, it.up ? "↰" : "📁"), it.name);
                     li.addEventListener("click", () => load(it.path));
                     li.addEventListener("keydown", ev => { if (ev.key === "Enter") load(it.path); });
@@ -428,7 +474,18 @@
         }
         cancel.addEventListener("click", () => m.close());
         select.addEventListener("click", () => { onPick(current); m.close(); });
-        newBtn.addEventListener("click", () => newFolderDialog(current, path => load(path)));
+        newBtn.addEventListener("click", () => {
+            const parent = current;
+            newFolderDialog(parent, async path => {
+                await load(parent);
+                const name = path.slice(path.lastIndexOf("/") + 1);
+                const item = Array.from(list.children).find(li => li.dataset.name === name);
+                current = path;
+                pathLabel.textContent = path;
+                if (item) celebrate(item, path, () => m.close(), onPick, target);
+                else { onPick(path); m.close(); }
+            });
+        });
         load(start);
     }
 
@@ -471,6 +528,29 @@
         return h("div", { class: "alert alert-" + kind, role: kind === "danger" ? "alert" : "status" },
             h("div", { class: "alert-text" }, h("strong", {}, title), text ? h("div", {}, text) : null),
             action || null);
+    };
+
+    /* Why a feature (or one field) cannot be used, with Details and, when it helps, Install.
+     * state: {state, reason, install}; onInstalled runs after a successful install. */
+    C.featureNote = function (fid, state, { onInstalled, compact } = {}) {
+        const st = state || SH.feature(fid);
+        if (!st || st.state === "ready" || st.state === "off") return null;
+        const label = { impossible: "Not possible here", needs_install: "Needs packages", needs_setup: "Needs setup" }[st.state] || "";
+        const actions = [];
+        if (st.state === "needs_install" && st.install && st.install.length)
+            actions.push(C.button("Install", async () => { if (await SH.installPackages(st.install) && onInstalled) onInstalled(); }, "secondary", { class: "btn btn-sm btn-secondary" }));
+        if (fid) actions.push(C.button("Details", () => SH.showComponent(fid), "link", { class: "btn btn-link btn-sm" }));
+        return h("div", { class: "feature-note feature-note-" + st.state + (compact ? " compact" : ""), role: "note" },
+            h("span", { class: "badge" + (st.state === "needs_install" ? " badge-info" : st.state === "needs_setup" ? " badge-warn" : "") }, label),
+            h("span", { class: "feature-note-text" }, st.reason || ""),
+            actions.length ? h("span", { class: "feature-note-actions" }, actions) : null);
+    };
+
+    /* Grey out a block of controls without losing their values. */
+    C.greyed = function (content, note) {
+        const box = h("div", { class: "greyed", "aria-disabled": "true" }, content);
+        box.inert = true; // not focusable or clickable; the controls themselves are left untouched
+        return h("div", { class: "greyed-wrap" }, note, box);
     };
 
     C.fieldset = (legend, ...children) => h("fieldset", { class: "group" }, h("legend", {}, legend), children);

@@ -14,9 +14,23 @@
         { id: "ad", label: "Active Directory" },
     ];
 
+    // Active Directory disappears from the navigation when the admin turns the feature off.
+    const visibleViews = () => VIEWS.filter(v => v.id !== "ad" || !SH.store.status || SH.featureOn("ad"));
+
     function currentFromLocation() {
         const path = (cockpit.location.path[0] || "").toLowerCase();
-        return VIEWS.some(v => v.id === path) ? path : "overview";
+        return visibleViews().some(v => v.id === path) ? path : "overview";
+    }
+
+    let navKey = "";
+    function buildNav() {
+        const views = visibleViews();
+        const key = views.map(v => v.id).join(",");
+        if (key === navKey) return;
+        navKey = key;
+        if (!views.some(v => v.id === SH.currentView)) SH.currentView = "overview";
+        nav = C.tabs({ items: views, active: SH.currentView, onChange: go });
+        document.getElementById("nav").replaceChildren(nav.el);
     }
 
     SH.currentView = currentFromLocation();
@@ -26,6 +40,8 @@
     function render() {
         const st = SH.store.status;
         if (!st) return;
+        buildNav();
+        nav.select(SH.currentView, false);
         const root = content();
         root.classList.remove("is-loading");
         try {
@@ -44,8 +60,7 @@
     }
 
     document.addEventListener("DOMContentLoaded", async () => {
-        nav = C.tabs({ items: VIEWS, active: SH.currentView, onChange: go });
-        document.getElementById("nav").replaceChildren(nav.el);
+        buildNav();
         cockpit.addEventListener("locationchanged", () => {
             const id = currentFromLocation();
             if (id !== SH.currentView) { SH.currentView = id; nav.select(id, false); render(); }
@@ -60,6 +75,7 @@
         } catch (e) { /* older Cockpit: the Retry button still works */ }
         try {
             await SH.refresh();
+            SH.views.wizard.maybeOpen(SH.store.status);
         } catch (e) {
             content().classList.remove("is-loading");
             content().replaceChildren(C.alert("danger", e.denied ? "Administrative access required." : "Could not load ShareHub.", e.message,

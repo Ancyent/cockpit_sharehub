@@ -142,6 +142,16 @@ def nfs_server_support():
     return True, None
 
 
+def host_managed_hint(path, feature="size"):
+    """Advice for features that a container cannot manage itself (size limits, ZFS snapshots)."""
+    lead = f"This system runs in a container ({container_type()}), so the filesystem of {path} is managed by the host. "
+    if feature == "snapshots":
+        return lead + ("Take snapshots on the host instead (on Proxmox: sanoid or zfs-auto-snapshot for the "
+                       "container's volume). Deleted files can still be kept by the recycle bin.")
+    return lead + ("Set the size on the host instead - on Proxmox, give the share its own mount point with a size "
+                   f"(e.g. pct set <id> -mp0 <storage>:<size in GB>,mp={path}); clients then see that size.")
+
+
 def wsdd_unit():
     """The installed WS-Discovery daemon unit: wsdd-server (wsdd) or wsdd2."""
     for unit in ("wsdd-server", "wsdd2"):

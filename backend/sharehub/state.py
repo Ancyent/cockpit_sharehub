@@ -63,6 +63,19 @@ DEFAULT_SETTINGS = {
         "login_shell": False,
         "template_homedir": "/home/%U",
     },
+    # Which optional features the admin wants ShareHub to manage (Settings → Features).
+    # Everything is on by default, so upgrades change nothing; the first-run wizard sets
+    # "configured" on a fresh install. mDNS, WS-Discovery and NetBIOS live in "samba".
+    "features": {
+        "configured": False,
+        "nfs": True,
+        "ftp": True,
+        "ad": True,
+        "recycle": True,
+        "quota": True,
+        "snapshots": True,
+        "versions": True,
+    },
 }
 
 DEFAULT_SHARE = {

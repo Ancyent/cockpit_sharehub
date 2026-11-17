@@ -15,7 +15,7 @@ import os
 import re
 
 from .paths import STATE_DIR
-from .util import HelperError, atomic_write, have, read_text, run
+from .util import HelperError, atomic_write, container_type, have, host_managed_hint, read_text, run
 
 QUOTA_FILE = os.path.join(STATE_DIR, "quotas.json")
 FIRST_PROJECT_ID = 20000
@@ -52,47 +52,65 @@ def _zfs_dataset(path):
     return None
 
 
+def zfs_usable():
+    """The zfs tool can talk to the kernel (inside a container /dev/zfs is usually missing)."""
+    return have("zfs") and os.path.exists("/dev/zfs")
+
+
 def detect(path):
-    """How a size limit can be enforced for path: {"method", "supported", "reason", ...}."""
+    """How a size limit can be enforced for path.
+
+    Returns {"method", "supported", "kind", "reason", "install", ...} where kind is one of
+    ready, needs_install (install the package in "install"), needs_setup (the filesystem or
+    folder must be prepared; reason says how) or impossible (cannot work on this system)."""
     path = os.path.normpath(path)
     mnt = _mount(path)
     fs = mnt["fstype"]
-    out = {"path": path, "fstype": fs, "mountpoint": mnt["target"], "method": None, "supported": False}
+    out = {"path": path, "fstype": fs, "mountpoint": mnt["target"], "method": None, "supported": False,
+           "kind": "impossible", "reason": None, "install": None}
+    in_container = bool(container_type())
+
+    def result(kind, reason=None, install=None, **extra):
+        out.update(kind=kind, reason=reason, install=install, supported=kind == "ready", **extra)
+        return out
+
     if fs == "zfs":
+        if in_container and not zfs_usable():
+            return result("impossible", host_managed_hint(path))
+        if not have("zfs"):
+            return result("needs_install", "Install zfsutils-linux to manage ZFS size limits.", "zfsutils-linux")
         dataset = _zfs_dataset(path)
         if dataset:
-            out.update(method="zfs", supported=True, dataset=dataset)
-        else:
-            out["reason"] = (f"{path} is a folder inside a ZFS dataset. Size limits need a dedicated dataset "
-                             f"(zfs create <pool>/<name>) mounted at the share path.")
-    elif fs == "xfs":
-        if any(o in mnt["options"] for o in ("prjquota", "pquota", "pqnoenforce")):
-            out.update(method="xfs", supported=have("xfs_quota"),
-                       reason=None if have("xfs_quota") else "Install xfsprogs.")
-        else:
-            out["reason"] = (f"Mount {mnt['target']} with the 'prjquota' option (in /etc/fstab, then remount) "
-                             "to enable size limits.")
-    elif fs == "ext4":
+            return result("ready", method="zfs", dataset=dataset)
+        return result("needs_setup", f"{path} is a folder inside a ZFS dataset. Size limits need a dedicated "
+                                     "dataset (zfs create <pool>/<name>) mounted at the share path.")
+    if fs in ("xfs", "ext4") and in_container:
+        return result("impossible", host_managed_hint(path))
+    if fs == "xfs":
+        if not any(o in mnt["options"] for o in ("prjquota", "pquota", "pqnoenforce")):
+            return result("needs_setup", f"Mount {mnt['target']} with the 'prjquota' option (in /etc/fstab, then "
+                                         "remount) to enable size limits.")
+        if not have("xfs_quota"):
+            return result("needs_install", "Install xfsprogs to manage XFS size limits.", "xfsprogs")
+        return result("ready", method="xfs")
+    if fs == "ext4":
         features = run(["tune2fs", "-l", mnt["source"]], check=False).stdout if have("tune2fs") else ""
         has_feature = re.search(r"^Filesystem features:.*\bproject\b", features, re.M) is not None
-        mounted = "prjquota" in mnt["options"]
-        if has_feature and mounted and have("setquota"):
-            out.update(method="ext4", supported=True)
-        elif not have("setquota"):
-            out["reason"] = "Install the 'quota' package."
-        else:
-            out["reason"] = ("ext4 needs the 'project' feature (tune2fs -O project,quota on the unmounted "
-                             f"filesystem) and the 'prjquota' mount option on {mnt['target']}.")
-    elif fs == "btrfs":
-        is_subvol = os.stat(path).st_ino == 256
-        if is_subvol and have("btrfs"):
-            out.update(method="btrfs", supported=True)
-        else:
-            out["reason"] = (f"{path} is a folder, not a Btrfs subvolume. Create the share folder with "
-                             "'btrfs subvolume create' to use size limits.")
-    else:
-        out["reason"] = f"Size limits are not supported on {fs or 'this filesystem'} (use ZFS, XFS, ext4 or Btrfs)."
-    return out
+        if not (has_feature and "prjquota" in mnt["options"]):
+            return result("needs_setup", "ext4 needs the 'project' feature (tune2fs -O project,quota on the "
+                                         f"unmounted filesystem) and the 'prjquota' mount option on {mnt['target']}.")
+        if not have("setquota"):
+            return result("needs_install", "Install the 'quota' package to manage ext4 size limits.", "quota")
+        return result("ready", method="ext4")
+    if fs == "btrfs":
+        if os.stat(path).st_ino != 256:
+            return result("needs_setup", f"{path} is a folder, not a Btrfs subvolume. Create the share folder "
+                                         "with 'btrfs subvolume create' to use size limits.")
+        if not have("btrfs"):
+            return result("needs_install", "Install btrfs-progs to manage Btrfs size limits.", "btrfs-progs")
+        return result("ready", method="btrfs")
+    return result("impossible", f"Size limits are not supported on {fs or 'this filesystem'} "
+                                "(use ZFS, XFS, ext4 or Btrfs).")
 
 
 # --------------------------------------------------------------------------- bookkeeping
