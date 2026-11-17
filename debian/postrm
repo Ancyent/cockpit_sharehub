@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# On "remove" the generated configuration stays, so shares keep working.
+# On "purge" everything ShareHub generated is removed (Samba registry shares stay).
+set -e
+
+if [ "$1" = "purge" ]; then
+    if [ -f /etc/fstab ]; then
+        grep -E '[[:space:]]bind,[^[:space:]]*x-sharehub' /etc/fstab | awk '{print $2}' | while read -r target; do
+            target=$(printf '%b' "$target")
+            umount "$target" 2>/dev/null || umount -l "$target" 2>/dev/null || true
+            rmdir "$target" 2>/dev/null || true
+        done
+        sed -i '/x-sharehub/d' /etc/fstab
+    fi
+    rm -f /etc/proftpd/conf.d/sharehub.conf /etc/exports.d/sharehub.exports /etc/nfs.conf.d/sharehub.conf
+    rm -rf /etc/sharehub
+    if command -v exportfs >/dev/null 2>&1; then exportfs -ra 2>/dev/null || true; fi
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+        systemctl try-reload-or-restart proftpd 2>/dev/null || true
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

@@ -5,6 +5,7 @@
 import os
 import sys
 
+sys.dont_write_bytecode = True  # keep /usr/lib/sharehub clean for dpkg
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from sharehub.cli import main  # noqa: E402

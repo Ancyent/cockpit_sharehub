@@ -1,66 +1,73 @@
-# cockpit_sharehub
+# ShareHub - file sharing for Cockpit
 
-A [Cockpit](https://cockpit-project.org/) plugin for managing file sharing on Linux servers from a single place: **SMB, NFS and FTP on the same folder**, local users whose system and Samba passwords stay in sync, per-user home folders, and (on the roadmap) macOS/Time Machine, Windows Previous Versions, recycle bin and Active Directory.
+ShareHub adds a **File Sharing** page to [Cockpit](https://cockpit-project.org/) for managing SMB, NFS and FTP from one place. A share is one folder, published over any mix of **SMB, NFS and FTP/FTPS**, with one list of allowed users and groups.
 
-> **Status: early development (v0.2).** SMB and FTP shares, home folders and the user/password backend work and have been tested against real Samba and ProFTPD. NFS, the new UI and the rest of the roadmap are in progress. See [docs/PLAN.md](docs/PLAN.md) for the plan (written in Romanian).
+![Shares](docs/screenshots/shares.png)
 
-## What works today (v0.2)
+## Features
 
-- **SMB shares** stored in the Samba registry (`net conf`): path, description, allowed users and groups, read-only, guest access, visibility in network browsing.
-- **"Also publish over FTP"** per share, served by ProFTPD:
-  - every user is jailed in `/srv/ftp-shares`, where each share is a bind mount;
-  - FTP access follows the same users and groups as Samba;
-  - a share can be read-only on FTP only;
-  - FTPS (TLS) can be required, which refuses plain-FTP logins.
-- **Per-user home folders:** `[homes]` on SMB and `/home/<user>` on FTP. Each user sees only their own home.
-- **Users** (backend only, the UI is not done yet):
-  - create and edit users;
-  - set one password for both the system (FTP/SSH) and Samba;
-  - enable or disable the Samba account.
-- **Safe changes:** every config change is validated (`testparm`, `proftpd -t`) and rolled back if validation fails.
+- **One share, three protocols.** Switch SMB, NFS and FTP on and off per folder. SMB and FTP use the same users and groups; NFS uses a list of allowed client machines.
+- **Users and groups.** Local accounts with **one password for the system and Samba**, so FTP, SSH and SMB logins never drift apart. You can enable or disable each user's Samba account.
+- **Home folders.** Each user gets `\\server\<user>` over SMB and `/home/<user>` over FTP, and nobody can see anyone else's home.
+- **macOS.** Optional `vfs_fruit` tuning, **Time Machine** destinations with a size limit, and Bonjour (mDNS) announcements.
+- **Windows.** **Previous Versions** from ZFS snapshots (sanoid, zfs-auto-snapshot) or Btrfs snapshots (snapper), optional Windows ACLs, and WS-Discovery so the server shows up under *Network*.
+- **Recycle bin.** Files deleted over SMB go to `.recycle/<user>` and are removed after a retention period you choose.
+- **Active Directory.** A join wizard with prerequisite checks, winbind with `rid` or `ad` ID mapping, and domain users and groups in every access list.
+- **FTP done safely.** ProFTPD with every user jailed to the shares they are allowed to see. Each share appears as a bind mount. FTPS can be required.
+- **Operations.** Service status, live SMB/NFS/FTP sessions (including disconnecting a session), firewall port helpers for ufw and firewalld, and a change history you can restore from.
+- **Safe changes.** Every change is validated (`testparm`, `exportfs`, `proftpd -t`) before it is kept. If anything fails, the previous configuration is put back.
+- **Import.** Takes over shares created by the 45Drives *File Sharing* module, NFS exports from `/etc/exports`, and the earlier cockpit-smbftp prototype.
 
-Tested on Ubuntu 24.04 (Samba 4.19, ProFTPD 1.3.8b).
+| Overview | Share editor | Settings |
+|---|---|---|
+| ![Overview](docs/screenshots/overview.png) | ![Share editor](docs/screenshots/share-smb.png) | ![Settings](docs/screenshots/settings-smb.png) |
 
-## Install (development build)
+## Quick start (Ubuntu 24.04)
 
-```bash
-git clone https://github.com/Ancyent/cockpit_sharehub.git
-cd cockpit_sharehub
-sudo ./install.sh --enable-registry
-```
+1. Download the latest `cockpit-sharehub_*_all.deb` from [Releases](https://github.com/Ancyent/cockpit_sharehub/releases).
+2. Install it:
 
-Then open `https://<server>:9090` and choose **SMB + FTP Shares** (administrative access must be turned on).
+   ```bash
+   sudo apt install ./cockpit-sharehub_*_all.deb
+   ```
 
-Firewall: open 445/tcp for SMB, 21/tcp plus the passive port range for FTP.
+3. Open `https://<server>:9090` and log in with an administrator account.
+4. Turn on **administrative access** and open **File Sharing**.
+5. On the first visit, click **Enable registry**.
 
-```bash
-sudo ./uninstall.sh     # removes the plugin and FTP mounts; Samba shares are kept
-```
+Full instructions, including installing from source, are in **[docs/INSTALL.md](docs/INSTALL.md)**.
 
-## How it works
+## Documentation
 
-| Piece | Where |
+| Document | Contents |
 |---|---|
-| Samba shares | Samba registry (`include = registry` in `[global]`) |
-| FTP state | `/etc/cockpit-smbftp/state.json` |
-| FTP folders | bind mounts in `/srv/ftp-shares`, kept in `/etc/fstab` (option `x-cockpit-smbftp`) |
-| ProFTPD config | `/etc/proftpd/conf.d/cockpit-smbftp.conf` (generated) |
-| Privileged work | `smbftp/helper.py`, called through `cockpit.spawn` with superuser rights; JSON on stdin and stdout |
+| [INSTALL.md](docs/INSTALL.md) | Requirements, installation, first run, firewall, upgrade, removal, troubleshooting |
+| [USER_GUIDE.md](docs/USER_GUIDE.md) | Every screen and option, with recommendations |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How ShareHub works: state, reconciliation, files it writes, helper commands |
+| [TESTING.md](docs/TESTING.md) | Automated tests, what has been verified, and a manual test checklist |
+| [PLAN.md](docs/PLAN.md) | Roadmap and status |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup and contribution rules |
 
-## Roadmap
+## Status
 
-| Phase | Scope |
-|---|---|
-| 0 | Single state model + reconcile engine, backup/undo, migration from 45Drives *File Sharing* |
-| 1 | New UI: Shares (SMB/NFS/FTP), Users & Groups, global Samba settings, home folders |
-| 2 | macOS profile (vfs_fruit), Time Machine, recycle bin, discovery (Avahi + wsdd) |
-| 3 | Previous Versions from ZFS/Btrfs snapshots |
-| 4 | Active Directory join (winbind) |
-| 5 | Overview: services, live connections, firewall |
-| 6 | `.deb` packaging, CI, apt repository |
+**Version 0.9.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
+
+Four areas still need validation on real infrastructure:
+- NFS client mounts;
+- joining a real Active Directory domain;
+- Time Machine backups from a Mac;
+- service management under systemd.
+
+See [TESTING.md](docs/TESTING.md) for what is verified and what is not. Version 1.0 follows once the field checklist passes.
+
+## Supported systems
+
+- **Target:** Ubuntu 24.04 LTS.
+- **Expected to work, not yet tested:** Ubuntu 22.04 LTS and Debian 12.
+- **Requires:** Cockpit 264 or newer, Samba 4.15 or newer, Python 3.10 or newer.
 
 ## License
 
 Copyright (C) 2026 cockpit_sharehub contributors.
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
+ShareHub is free software, released under the [GNU General Public License v3.0 or later](LICENSE).

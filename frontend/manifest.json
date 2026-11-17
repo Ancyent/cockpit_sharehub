@@ -2,7 +2,7 @@
     "version": "0.9.0",
     "name": "sharehub",
     "require": {
-        "cockpit": "300"
+        "cockpit": "264"
     },
     "menu": {
         "index": {

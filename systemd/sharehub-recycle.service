@@ -1,0 +1,9 @@
+[Unit]
+Description=ShareHub: delete expired recycle-bin files
+Documentation=https://github.com/Ancyent/cockpit_sharehub
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/sharehub/sharehub-helper recycle-cleanup
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# nothing to build: static web files and Python
+
+override_dh_auto_test:
+	# unit tests run in CI (they need pytest)
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/cockpit-sharehub
+
+override_dh_installsystemd:
+	dh_installsystemd --name=sharehub-recycle sharehub-recycle.timer

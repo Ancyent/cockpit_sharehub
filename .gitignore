@@ -5,3 +5,10 @@ __pycache__/
 /dist/
 .vscode/
 .idea/
+debian/*.debhelper
+debian/*.debhelper.log
+debian/files
+debian/*.substvars
+debian/debhelper-build-stamp
+debian/.debhelper/
+debian/cockpit-sharehub/

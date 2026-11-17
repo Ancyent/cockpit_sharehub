@@ -1,0 +1,47 @@
+Source: cockpit-sharehub
+Section: admin
+Priority: optional
+Maintainer: Andrei Prajina <ancyent@xserv.ro>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/Ancyent/cockpit_sharehub
+Vcs-Git: https://github.com/Ancyent/cockpit_sharehub.git
+Vcs-Browser: https://github.com/Ancyent/cockpit_sharehub
+Rules-Requires-Root: no
+
+Package: cockpit-sharehub
+Architecture: all
+Depends: ${misc:Depends},
+         python3 (>= 3.10),
+         cockpit-bridge (>= 264),
+         cockpit-ws (>= 264),
+         samba,
+         samba-common-bin
+Recommends: nfs-kernel-server,
+            proftpd-core | proftpd-basic,
+            proftpd-mod-crypto,
+            ssl-cert,
+            avahi-daemon,
+            wsdd-server,
+            acl,
+            attr,
+            smbclient
+Suggests: winbind,
+          libnss-winbind,
+          libpam-winbind,
+          krb5-user,
+          sanoid,
+          zfs-auto-snapshot,
+          snapper,
+          ufw
+Description: Cockpit file sharing manager for SMB, NFS and FTP
+ ShareHub adds a "File Sharing" page to Cockpit. Each share is one folder
+ that can be published over SMB, NFS and FTP/FTPS at the same time, with
+ one list of allowed users and groups.
+ .
+ Features: local users with one password for the system and Samba,
+ per-user home folders, macOS optimisations and Time Machine targets,
+ recycle bin with retention, Windows Previous Versions from ZFS or Btrfs
+ snapshots, Active Directory membership through winbind, live connection
+ monitoring, firewall helpers, change history with restore, and import of
+ shares created by other tools.

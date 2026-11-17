@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -e
+
+if [ "$1" = "configure" ]; then
+    # Prepare ProFTPD (include dir, mod_tls) and the state directory.
+    /usr/lib/sharehub/sharehub-helper bootstrap || true
+fi
+
+#DEBHELPER#
+
+exit 0

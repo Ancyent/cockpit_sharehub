@@ -1,0 +1,7 @@
+cockpit-sharehub (0.9.0) unstable; urgency=medium
+
+  * First packaged release: SMB, NFS and FTP shares, users and groups,
+    home folders, macOS/Time Machine, recycle bin, Previous Versions,
+    Active Directory, connections, firewall, history and import.
+
+ -- Andrei Prajina <ancyent@xserv.ro>  Tue, 17 Nov 2026 22:00:00 +0200
