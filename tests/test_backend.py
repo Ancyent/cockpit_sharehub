@@ -456,3 +456,21 @@ def test_samba_params_for_versioning(monkeypatch, share_dir):
     assert p["shadow:format"] == "sharehub_%Y.%m.%d-%H.%M.%S"
     assert p["veto files"] == "/.sharehub-snapshots/.recycle/"
     assert "shadow_copy2" in p["vfs objects"]
+
+
+def test_existing_users_with_dots_or_upper_case_are_managed(monkeypatch):
+    from sharehub import users
+    import pwd as _pwd
+    entry = _pwd.struct_passwd(("Andrei.P", "x", 1001, 1001, "", "/home/Andrei.P", "/bin/bash"))
+    monkeypatch.setattr(users.pwd, "getpwnam", lambda n: entry if n == "Andrei.P" else (_ for _ in ()).throw(KeyError(n)))
+    calls = []
+    monkeypatch.setattr(users, "run", lambda cmd, **kw: calls.append((cmd, kw.get("inp"))))
+    monkeypatch.setattr(users, "have", lambda _: True)
+    assert users.set_password({"name": "Andrei.P", "password": "longenough", "smb": True}) == {"name": "Andrei.P"}
+    assert calls[0] == (["chpasswd"], "Andrei.P:longenough\n")
+    for bad in ("-rf", "a:b", "a b", "x,y", ""):
+        with pytest.raises(users.HelperError):
+            users.regular_user(bad)
+    # new users keep the strict rule
+    with pytest.raises(users.HelperError):
+        users.create_user({"name": "Andrei.P", "password": "longenough"})

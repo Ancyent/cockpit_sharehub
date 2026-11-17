@@ -7,8 +7,13 @@ import re
 
 from .util import HelperError, have, run
 
+# Names ShareHub creates: the conservative Debian/useradd default.
 USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 GROUP_RE = USER_RE
+# Names of accounts that already exist (created by adduser, Cockpit Accounts, other tools):
+# accept upper case and dots too, but never a leading '-' or characters unsafe for
+# chpasswd ("name:password"), smb.conf or ProFTPD lists.
+EXISTING_RE = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,63}$")
 LOGIN_SHELL = "/bin/bash"
 NOLOGIN_SHELL = "/usr/sbin/nologin"
 NOLOGIN_SHELLS = (NOLOGIN_SHELL, "/sbin/nologin", "/bin/false", "/usr/bin/false", "")
@@ -88,9 +93,8 @@ def listing(state):
 # --------------------------------------------------------------------------- validation
 
 def regular_user(name):
-    if not isinstance(name, str) or not USER_RE.match(name):
-        raise HelperError("Username: lower-case letters, digits, '_' or '-', max 32 characters, "
-                          "starting with a letter or '_'.")
+    if not isinstance(name, str) or not EXISTING_RE.match(name):
+        raise HelperError(f"Unsupported user name: {name!r}")
     try:
         entry = pwd.getpwnam(name)
     except KeyError:
