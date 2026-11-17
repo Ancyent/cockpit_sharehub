@@ -1,0 +1,12 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 cockpit_sharehub contributors
+"""Entry point called by the Cockpit page (via cockpit.spawn with superuser rights)."""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+from sharehub.cli import main  # noqa: E402
+
+sys.exit(main())
