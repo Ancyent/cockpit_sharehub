@@ -5,7 +5,7 @@ import json
 
 from . import ftp, nfs
 from .state import parse_ports
-from .util import HelperError, has_systemd, have, read_text, run, systemctl, unit_exists, unit_state
+from .util import HelperError, has_systemd, have, read_text, run, systemctl, unit_exists, unit_state, wsdd_unit
 
 SERVICES = {
     "smbd": "SMB file server",
@@ -15,6 +15,7 @@ SERVICES = {
     "proftpd": "FTP server",
     "avahi-daemon": "mDNS discovery (macOS)",
     "wsdd-server": "WS-Discovery (Windows)",
+    "wsdd2": "WS-Discovery (Windows)",
 }
 ACTIONS = ("start", "stop", "restart", "enable", "disable")
 
@@ -48,13 +49,14 @@ def apply_discovery(state, warnings):
     s = state["samba"]
     wanted = {
         "avahi-daemon": s["mdns"],
-        "wsdd-server": s["wsdd"],
         "nmbd": s["netbios"],
     }
+    wsdd = wsdd_unit()
+    if wsdd:
+        wanted[wsdd] = s["wsdd"]
+    # Missing daemons are reported on the Components dashboard, not on every save.
     for unit, on in wanted.items():
         if not unit_exists(f"{unit}.service"):
-            if on and unit != "nmbd":
-                warnings.append(f"{SERVICES[unit]} is enabled but {unit} is not installed.")
             continue
         active, enabled = unit_state(unit)
         if on and active != "active":
@@ -118,6 +120,8 @@ def required_ports(state):
             ports.append(("5353", "udp", "mDNS"))
         if state["samba"]["wsdd"]:
             ports += [("3702", "udp", "WS-Discovery"), ("5357", "tcp", "WS-Discovery")]
+            if wsdd_unit() == "wsdd2":
+                ports += [("5355", "udp", "LLMNR (wsdd2)"), ("5355", "tcp", "LLMNR (wsdd2)")]
     if any(s["nfs"]["enabled"] for s in shares):
         ports.append(("2049", "tcp", "NFS"))
         if state["nfs"]["v3"]:

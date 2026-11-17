@@ -1,3 +1,13 @@
+cockpit-sharehub (0.12.0) unstable; urgency=medium
+
+  * Containers: detect LXC/Docker; NFS is marked unsupported and cannot
+    be enabled where the kernel NFS server is unavailable.
+  * WS-Discovery works with wsdd-server or wsdd2 (Debian 13 ships wsdd2).
+  * Components dashboard: packages missing from the package sources are
+    shown as "Not available" with guidance instead of an Install button.
+
+ -- Andrei Prajina <ancyent@xserv.ro>  Tue, 17 Nov 2026 23:30:00 +0200
+
 cockpit-sharehub (0.11.0) unstable; urgency=medium
 
   * Components dashboard: packages, services and configuration checks per

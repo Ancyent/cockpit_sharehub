@@ -146,7 +146,7 @@
         const s = JSON.parse(JSON.stringify(share));
         const isNew = !originalName;
         const ftpReady = st.checks.proftpd_installed;
-        const nfsReady = st.checks.nfs_installed;
+        const nfsReady = st.checks.nfs_installed && st.checks.nfs_supported;
 
         // General
         const name = C.text({ label: "Share name", value: originalName || "", required: true, placeholder: "e.g. accounting",
@@ -174,7 +174,7 @@
         path.input.addEventListener("blur", checkQuota);
         const smbOn = C.toggle({ label: "SMB (Windows, macOS, Linux)", checked: s.smb.enabled, onChange: syncTabs });
         const nfsOn = C.toggle({ label: "NFS (Linux, VMware, Proxmox)", checked: s.nfs.enabled && nfsReady, onChange: syncTabs,
-            hint: nfsReady ? null : "NFS server is not installed (apt install nfs-kernel-server)." });
+            hint: nfsReady ? null : (st.checks.nfs_supported ? "NFS server is not installed - install it from Overview → Components." : st.checks.nfs_unsupported_reason) });
         nfsOn.setDisabled(!nfsReady);
         const ftpOn = C.toggle({ label: "FTP / FTPS", checked: s.ftp.enabled && ftpReady, onChange: syncTabs,
             hint: ftpReady ? null : "ProFTPD is not installed (apt install proftpd-core)." });

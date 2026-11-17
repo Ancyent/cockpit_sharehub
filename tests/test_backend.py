@@ -18,6 +18,16 @@ from sharehub.util import HelperError  # noqa: E402
 FTP_ROOT = "/srv/ftp-shares"
 
 
+@pytest.fixture(autouse=True)
+def nfs_available(monkeypatch):
+    """Tests must not depend on whether they run in a container."""
+    from sharehub import health as health_mod
+    from sharehub import util
+    monkeypatch.setattr(util, "nfs_server_support", lambda: (True, None))
+    monkeypatch.setattr(health_mod, "nfs_server_support", lambda: (True, None))
+    monkeypatch.setattr(health_mod, "container_type", lambda: "")
+
+
 @pytest.fixture
 def share_dir(tmp_path):
     d = tmp_path / "data share"
@@ -320,3 +330,37 @@ def test_install_allow_list():
         health.install({"packages": ["netcat-openbsd"]})
     with pytest.raises(HelperError):
         health.install({"packages": []})
+
+
+# --------------------------------------------------------------------------- containers and unavailable packages
+
+def test_nfs_refused_in_container(monkeypatch, share_dir):
+    from sharehub import util
+    monkeypatch.setattr(util, "nfs_server_support", lambda: (False, "This system runs in a container (lxc)."))
+    with pytest.raises(HelperError, match="container"):
+        make_share(share_dir, nfs={"enabled": True, "clients": [{"host": "*"}]})
+
+
+def test_container_detection(monkeypatch):
+    monkeypatch.undo()   # use the real detection code, not the autouse stub
+    from sharehub import util
+    monkeypatch.setattr(util, "have", lambda b: False)
+    monkeypatch.setattr(util, "read_text", lambda p: "lxc\n" if p == "/run/systemd/container" else None)
+    monkeypatch.setattr(util.os.path, "ismount", lambda p: False)
+    assert util.container_type() == "lxc"
+    ok, reason = util.nfs_server_support()
+    assert not ok and "lxc" in reason
+
+
+def test_report_unavailable_and_unsupported(monkeypatch):
+    st = statemod.empty_state()   # WS-Discovery is on by default but no share uses SMB yet
+    monkeypatch.setattr(health, "package_info", lambda names: {
+        n: {"installed": "1.0" if n in ("samba", "samba-common-bin", "nfs-kernel-server") else None,
+            "candidate": None if n in ("wsdd-server", "wsdd2") else "1.0"} for n in names})
+    monkeypatch.setattr(health, "_service", lambda u: {"unit": u, "installed": True, "active": "inactive", "enabled": None})
+    monkeypatch.setattr(health, "_checks", lambda fid, state: [])
+    monkeypatch.setattr(health, "nfs_server_support", lambda: (False, "container"))
+    feats = {f["id"]: f for f in health.report(st)["features"]}
+    assert feats["wsdd"]["status"] == "unavailable" and feats["wsdd"]["installable"] == []
+    assert "wsdd2" in feats["wsdd"]["reason"]
+    assert feats["nfs"]["status"] == "unsupported" and feats["nfs"]["installable"] == []

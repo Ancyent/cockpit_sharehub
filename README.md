@@ -52,7 +52,7 @@ Full instructions, including installing from source, are in **[docs/INSTALL.md](
 
 ## Status
 
-**Version 0.11.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
+**Version 0.12.0 is a release candidate.** The core features are tested against real Samba 4.19 and ProFTPD 1.3.8 on Ubuntu 24.04, and the user interface against Cockpit 314.
 
 Four areas still need validation on real infrastructure:
 - NFS client mounts;
@@ -65,6 +65,7 @@ See [TESTING.md](docs/TESTING.md) for what is verified and what is not. Version 
 ## Supported systems
 
 - **Target:** Ubuntu 24.04 LTS.
+- **Field-tested:** Debian 13 in a Proxmox LXC container (no NFS server in containers; see [INSTALL.md](docs/INSTALL.md)).
 - **Expected to work, not yet tested:** Ubuntu 22.04 LTS and Debian 12.
 - **Requires:** Cockpit 264 or newer, Samba 4.15 or newer, Python 3.10 or newer.
 

@@ -120,6 +120,36 @@ def systemctl(*args, warnings=None):
     return True
 
 
+def container_type():
+    """'lxc', 'docker', ... when running in a container, else ''."""
+    if have("systemd-detect-virt"):
+        out = run(["systemd-detect-virt", "-c"], check=False).stdout.strip()
+        return "" if out in ("", "none") else out
+    marker = read_text("/run/systemd/container")
+    if marker:
+        return marker.strip()
+    return "docker" if os.path.exists("/.dockerenv") else ""
+
+
+def nfs_server_support():
+    """(supported, reason). The kernel NFS server is not available inside containers."""
+    if os.path.ismount("/proc/fs/nfsd"):
+        return True, None
+    ctype = container_type()
+    if ctype:
+        return False, (f"This system runs in a container ({ctype}). The NFS server is part of the kernel "
+                       "and cannot run in a container - run NFS on the host or in a virtual machine.")
+    return True, None
+
+
+def wsdd_unit():
+    """The installed WS-Discovery daemon unit: wsdd-server (wsdd) or wsdd2."""
+    for unit in ("wsdd-server", "wsdd2"):
+        if unit_exists(f"{unit}.service"):
+            return unit
+    return None
+
+
 def fs_type(path):
     """Filesystem type of the mount that contains path (e.g. ext4, zfs, btrfs)."""
     proc = run(["findmnt", "-n", "-o", "FSTYPE", "--target", path], check=False)

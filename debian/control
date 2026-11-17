@@ -22,7 +22,7 @@ Recommends: nfs-kernel-server,
             proftpd-mod-crypto,
             ssl-cert,
             avahi-daemon,
-            wsdd-server,
+            wsdd-server | wsdd2,
             acl,
             attr,
             smbclient

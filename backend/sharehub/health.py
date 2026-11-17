@@ -7,12 +7,13 @@ import os
 import re
 
 from . import ftp, samba
-from .util import HelperError, has_systemd, have, read_text, run, systemctl, unit_exists, unit_state
+from .util import (HelperError, container_type, has_systemd, have, nfs_server_support, read_text, run,
+                   systemctl, unit_exists, unit_state, wsdd_unit)
 
 # Packages the UI may install. Anything else is refused.
 INSTALLABLE = {
     "samba", "samba-common-bin", "smbclient", "nfs-kernel-server", "proftpd-core", "proftpd-basic",
-    "proftpd-mod-crypto", "ssl-cert", "avahi-daemon", "wsdd-server", "winbind", "libnss-winbind",
+    "proftpd-mod-crypto", "ssl-cert", "avahi-daemon", "wsdd-server", "wsdd2", "winbind", "libnss-winbind",
     "libpam-winbind", "krb5-user", "sanoid", "zfs-auto-snapshot", "snapper", "quota", "xfsprogs",
     "btrfs-progs", "zfsutils-linux", "acl", "attr", "ufw",
 }
@@ -83,14 +84,19 @@ def features(state):
          "services": [], "in_use": uses["ftps"] and uses["ftp"]},
         {"id": "mdns", "label": "macOS discovery (Bonjour)", "requires": [["avahi-daemon"]],
          "services": ["avahi-daemon"], "in_use": uses["mdns"] and uses["smb"]},
-        {"id": "wsdd", "label": "Windows discovery (WS-Discovery)", "requires": [["wsdd-server"]],
-         "services": ["wsdd-server"], "in_use": uses["wsdd"] and uses["smb"]},
+        {"id": "wsdd", "label": "Windows discovery (WS-Discovery)", "requires": [["wsdd-server", "wsdd2"]],
+         "services": [wsdd_unit() or "wsdd-server"], "in_use": uses["wsdd"] and uses["smb"],
+         "unavailable_hint": "Neither wsdd-server nor wsdd2 is in this system's package sources. Windows can still "
+                             "reach shares as \\\\server\\share; turn off WS-Discovery under Settings → SMB to clear this."},
         {"id": "ad", "label": "Active Directory", "requires": [["winbind"], ["libnss-winbind"], ["libpam-winbind"], ["krb5-user"]],
          "services": ["winbind"], "in_use": uses["ad"]},
         {"id": "versions", "label": "Previous Versions (snapshots)", "requires": [["sanoid", "zfs-auto-snapshot", "snapper"]],
          "services": [], "in_use": uses["versions"]},
         {"id": "quota", "label": "Size limits", "requires": [["zfsutils-linux", "xfsprogs", "quota", "btrfs-progs"]],
-         "services": [], "in_use": uses["quota"], "note": "One tool per filesystem you use: zfsutils-linux (ZFS), xfsprogs (XFS), quota (ext4), btrfs-progs (Btrfs)."},
+         "services": [], "in_use": uses["quota"],
+         "note": "One tool per filesystem you use: zfsutils-linux (ZFS), xfsprogs (XFS), quota (ext4), btrfs-progs (Btrfs)."
+                 + (" In a container, quotas usually have to be set on the host (e.g. the container's mount point size)."
+                    if container_type() else "")},
         {"id": "recycle", "label": "Recycle bin cleanup", "requires": [], "services": ["sharehub-recycle.timer"],
          "in_use": uses["recycle"]},
     ]
@@ -144,6 +150,7 @@ def _checks(fid, state):
 
 def report(state):
     feats = features(state)
+    nfs_ok, nfs_reason = nfs_server_support()
     names = sorted({p for f in feats for alt in f["requires"] for p in alt})
     pkgs = package_info(names)
     out = []
@@ -155,9 +162,18 @@ def report(state):
         services = [_service(u) for u in f["services"]]
         checks = _checks(f["id"], state)
         installed = all(g["satisfied"] for g in groups)
+        unavailable = [g for g in groups if not g["satisfied"] and not any(p["candidate"] for p in g["packages"])]
+        unsupported = f["id"] == "nfs" and not nfs_ok
         running = all(sv["active"] in ("active", None) for sv in services if sv["installed"] is not False)
         checks_ok = all(c["ok"] for c in checks)
-        if not installed:
+        reason = None
+        if unsupported:
+            status, reason = "unsupported", nfs_reason
+            services = []
+        elif unavailable:
+            status = "attention" if f["in_use"] else "unavailable"
+            reason = f.get("unavailable_hint") or "Not available in this system's package sources."
+        elif not installed:
             status = "attention" if f["in_use"] or f.get("core") else "absent"
         elif f["in_use"] and (not running or not checks_ok):
             status = "attention"
@@ -174,10 +190,10 @@ def report(state):
                     missing.append(avail[0])
         out.append({
             "id": f["id"], "label": f["label"], "core": bool(f.get("core")), "in_use": f["in_use"],
-            "note": f.get("note"), "status": status, "packages": groups, "services": services,
-            "checks": checks, "installable": [m for m in missing if m in INSTALLABLE],
+            "note": f.get("note"), "status": status, "reason": reason, "packages": groups, "services": services,
+            "checks": checks, "installable": [] if unsupported else [m for m in missing if m in INSTALLABLE],
         })
-    return {"systemd": has_systemd(), "features": out}
+    return {"systemd": has_systemd(), "container": container_type(), "features": out}
 
 
 # --------------------------------------------------------------------------- actions

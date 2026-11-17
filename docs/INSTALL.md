@@ -12,6 +12,14 @@
 
 You need an account that can use `sudo`. Cockpit's "administrative access" uses it.
 
+### Notes per distribution
+
+| System | Notes |
+|---|---|
+| Ubuntu 24.04 | Everything is available. WS-Discovery uses `wsdd-server`. |
+| Debian 13 (trixie) | WS-Discovery uses `wsdd2` (Debian 13 has no `wsdd`/`wsdd-server`). The `samba` package recommends `samba-ad-dc`, so a normal install also pulls in the Samba domain-controller packages. They stay inactive, but you can avoid them by installing with `--no-install-recommends` and adding what you need, or remove them afterwards: `sudo apt remove samba-ad-dc samba-ad-provision && sudo apt autoremove`. |
+| LXC containers (e.g. Proxmox CT) | SMB, FTP, users, Active Directory and the UI work. **The NFS server does not**: it is part of the kernel and cannot run inside a container, so ShareHub marks NFS as not supported. Run NFS on the host or in a VM. Size limits are usually set on the host (the container's mount point size), because the container cannot manage ZFS or XFS quotas. |
+
 ## 2. Install Cockpit
 
 If Cockpit is not installed yet, follow the official instructions at <https://cockpit-project.org/running>.

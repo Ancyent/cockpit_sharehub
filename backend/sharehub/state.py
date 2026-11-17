@@ -284,6 +284,11 @@ def normalize_share(data, ftp_root):
         c["anonuid"] = _int_field(c["anonuid"], "NFS anonymous UID", 0, 4294967294, allow_empty=True)
         c["anongid"] = _int_field(c["anongid"], "NFS anonymous GID", 0, 4294967294, allow_empty=True)
         clients.append(c)
+    if nfs["enabled"]:
+        from .util import nfs_server_support
+        supported, reason = nfs_server_support()
+        if not supported:
+            raise HelperError("NFS cannot be used here. " + reason)
     if nfs["enabled"] and not clients:
         raise HelperError("Add at least one NFS client (host or subnet) or turn NFS off.")
     if len({c["host"] for c in clients}) != len(clients):

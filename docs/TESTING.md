@@ -41,6 +41,16 @@ Environment: Ubuntu 24.04, Samba 4.19.5, ProFTPD 1.3.8b, nfs-utils 2.6.4, Cockpi
 | Package | `dpkg -i`, `dpkg -P`, reinstall | Installs and bootstraps; purge removes generated files; re-import restores shares from the registry |
 | UI | Cockpit 314 with Chromium: every tab, editor tabs, folder browser with folder creation, pickers, validation errors, light and dark theme | OK |
 
+## Field test: Debian 13 in a Proxmox LXC container (0.11.0)
+
+| Item | Result |
+|---|---|
+| `apt install ./cockpit-sharehub_0.11.0_all.deb` | Installs with all dependencies; bootstrap enables mod_tls |
+| smbd, nmbd, proftpd, avahi-daemon, winbind | Running under systemd |
+| NFS server | Cannot start: `/proc/fs/nfsd` mount denied in LXC - handled in 0.12.0 (NFS marked unsupported) |
+| WS-Discovery | No `wsdd`/`wsdd-server` on Debian 13 - handled in 0.12.0 (`wsdd2` supported) |
+| `samba-ad-dc` | Pulled in by Samba's recommends; inactive; documented |
+
 ## Not yet verified (field checklist)
 
 These need real infrastructure. Run them before calling a deployment production-ready.

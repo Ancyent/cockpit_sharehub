@@ -49,10 +49,13 @@
         attention: ["danger", "Needs attention"],
         warning: ["warn", "Check configuration"],
         absent: ["off", "Not installed"],
+        unavailable: ["warn", "Not available"],
+        unsupported: ["off", "Not supported here"],
     };
     const expanded = new Set();
 
     function summary(f) {
+        if (f.reason) return f.reason;
         const missing = f.packages.filter(g => !g.satisfied).map(g => g.packages.map(p => p.name).join(" or "));
         const stopped = f.services.filter(s => s.installed && s.active !== "active").map(s => s.unit);
         const failing = f.checks.filter(c => !c.ok).map(c => c.label);
@@ -108,7 +111,7 @@
     }
 
     function componentsCard(data) {
-        const order = { attention: 0, warning: 1, ok: 2, absent: 3 };
+        const order = { attention: 0, warning: 1, ok: 2, absent: 3, unavailable: 4, unsupported: 5 };
         const feats = data.features.slice().sort((a, b) => (order[a.status] - order[b.status]) || (b.in_use - a.in_use));
         const rows = feats.map(f => {
             const [kind, text] = STATUS[f.status];
@@ -141,6 +144,7 @@
         const attention = data.features.filter(f => f.status === "attention").length;
         return h("div", {},
             !data.systemd ? h("p", { class: "muted small pad" }, "systemd is not running here - service states are unknown.") : null,
+            data.container ? h("p", { class: "muted small pad" }, `Running in a container (${data.container}). Features that need the kernel, such as the NFS server, are not available.`) : null,
             h("div", { class: "pad muted small" }, attention ? `${SH.plural(attention, "component")} need${attention === 1 ? "s" : ""} attention.` : "Everything that is in use is installed and running."),
             h("div", { class: "features" }, rows));
     }

@@ -16,7 +16,7 @@ import sys
 
 from . import __version__, ad, ftp, health, migrate, paths, quota, reconcile, samba, services, users
 from . import state as statemod
-from .util import HelperError, have, read_text, run
+from .util import HelperError, have, nfs_server_support, read_text, run, wsdd_unit
 
 
 # --------------------------------------------------------------------------- read-only
@@ -41,10 +41,12 @@ def cmd_status(_req):
             "file_shares": samba.file_shares(),
             "unmanaged_shares": samba.unmanaged_shares(state) if samba.registry_enabled() else [],
             "nfs_installed": have("exportfs"),
+            "nfs_supported": nfs_server_support()[0],
+            "nfs_unsupported_reason": nfs_server_support()[1],
             "proftpd_installed": have("proftpd"),
             "proftpd_include_ok": ftp.include_ok(found) if found else False,
             "proftpd_defaultroot_conflict": "defaultroot" in found,
-            "wsdd_installed": os.path.exists("/usr/lib/systemd/system/wsdd-server.service"),
+            "wsdd_installed": bool(wsdd_unit()) or any(os.path.exists(f"/usr/lib/systemd/system/{u}.service") for u in ("wsdd-server", "wsdd2")),
             "avahi_installed": have("avahi-daemon"),
             "ad_missing_packages": ad.prerequisites(),
             "sanoid_installed": have("sanoid"),

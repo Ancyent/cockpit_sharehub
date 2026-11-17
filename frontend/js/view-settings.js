@@ -71,7 +71,8 @@
         const v4 = C.toggle({ label: "NFSv4", checked: n.v4, hint: "Recommended. Uses only TCP port 2049." });
         const v3 = C.toggle({ label: "NFSv3", checked: n.v3, hint: "For VMware ESXi older setups and legacy clients. Uses fixed ports 111, 20048 and 32765-32768." });
         const threads = C.text({ label: "Server threads", value: n.threads, mono: true, hint: "8 suits most servers; raise for many busy clients." });
-        if (!st.checks.nfs_installed) return C.alert("info", "NFS server is not installed.", "Install it with: sudo apt install nfs-kernel-server");
+        if (!st.checks.nfs_supported) return C.alert("info", "NFS is not available on this system.", st.checks.nfs_unsupported_reason);
+        if (!st.checks.nfs_installed) return C.alert("info", "NFS server is not installed.", "Install it from Overview → Components, or with: sudo apt install nfs-kernel-server");
         return h("div", { class: "form" }, C.fieldset("Versions", v4.el, v3.el), C.fieldset("Performance", threads.el),
             saveBar(() => {
                 if (!/^\d{1,3}$/.test(threads.get())) { threads.setError("Enter a number between 1 and 256."); return Promise.resolve(); }

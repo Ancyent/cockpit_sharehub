@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.0 - 2026-11-17
+
+First field test on Debian 13 (trixie) in a Proxmox LXC container.
+
+- Containers (LXC, Docker) are detected. NFS is shown as **Not supported here** and cannot be enabled
+  when the kernel NFS server is unavailable (`/proc/fs/nfsd` cannot be mounted in a container)
+- WS-Discovery uses `wsdd-server` or `wsdd2`, whichever the distribution provides (Debian 13 has only
+  `wsdd2`); LLMNR port 5355 is added to the firewall list when wsdd2 is used
+- Components dashboard: when no package for a feature exists in the package sources it shows
+  **Not available** with what to do, instead of an Install button that cannot work
+- Missing discovery daemons are reported on the dashboard instead of a warning on every save
+
 ## 0.11.0 - 2026-11-17
 
 - **Components** dashboard on the Overview page (replaces the Services card): for each feature
