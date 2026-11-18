@@ -708,3 +708,51 @@ def test_recycle_root_problem_and_missing_folder(tmp_path):
 def test_recycle_exclude_dir_uses_pipes():
     from sharehub import samba
     assert "," not in samba.RECYCLE_EXCLUDE_DIR and samba.RECYCLE_EXCLUDE_DIR.split("|") == [".recycle", "tmp", "temp"]
+
+
+# --------------------------------------------------------------------------- 0.15: Cockpit Files from backports
+
+def test_backports_suite_and_detection(tmp_path):
+    from sharehub import backports
+    deb = backports.os_release('ID=debian\nVERSION_CODENAME=trixie\n')
+    ubu = backports.os_release('ID=ubuntu\nID_LIKE=debian\nVERSION_CODENAME=noble\n')
+    assert backports.suite(deb) == "trixie-backports" and backports.suite(ubu) == "noble-backports"
+    assert backports.suite(backports.os_release("ID=fedora\nVERSION_CODENAME=\n")) is None
+    assert backports.distro(ubu) == "ubuntu"
+    lst = tmp_path / "a.list"
+    lst.write_text("# deb http://deb.debian.org/debian trixie-backports main\ndeb http://deb.debian.org/debian trixie main\n")
+    assert not backports.enabled("trixie-backports", [str(lst)])
+    lst.write_text("deb http://deb.debian.org/debian trixie-backports main\n")
+    assert backports.enabled("trixie-backports", [str(lst)])
+    src = tmp_path / "ubuntu.sources"
+    src.write_text("## <name>-backports - comment\nTypes: deb\nSuites: noble noble-updates noble-backports\n")
+    assert backports.enabled("noble-backports", [str(src)])
+    assert not backports.enabled("noble-backports-x", [str(src)])
+
+
+def test_backports_preview_parses_apt(monkeypatch):
+    from sharehub import backports
+    out = ("Inst libnss-systemd (255.4 Ubuntu:24.04/noble-updates [amd64])\n"
+           "Inst cockpit-bridge [314-1] (362-1~bpo24.04.1 Ubuntu:24.04/noble-backports [all])\n"
+           "Conf cockpit-bridge (362-1~bpo24.04.1 Ubuntu:24.04/noble-backports [all])\n")
+    monkeypatch.setattr(backports, "suite", lambda rel=None: "noble-backports")
+    monkeypatch.setattr(backports, "run", lambda cmd, **kw: type("P", (), {"stdout": out, "stderr": "", "returncode": 0})())
+    assert backports.preview(["cockpit-files"]) == [
+        {"name": "libnss-systemd", "from": None, "to": "255.4"},
+        {"name": "cockpit-bridge", "from": "314-1", "to": "362-1~bpo24.04.1"}]
+
+
+def test_files_feature_is_opt_in_and_installable_from_backports(monkeypatch):
+    from sharehub import health
+    st = statemod.empty_state()
+    assert st["features"]["files"] is False
+    monkeypatch.setattr(health, "package_info", lambda names: {n: {"installed": "1", "candidate": "1"} for n in names}
+                        | {"cockpit-files": {"installed": None, "candidate": None}})
+    monkeypatch.setattr(health.backports, "suite", lambda rel=None: "trixie-backports")
+    monkeypatch.setattr(health.backports, "enabled", lambda name=None, files=None: False)
+    f = next(x for x in health.report(st, light=True)["features"] if x["id"] == "files")
+    assert f["installable"] == ["cockpit-files"] and f["from_backports"] == "trixie-backports"
+    assert f["ui"] == "off" and "enables it" in f["reason"]
+    monkeypatch.setattr(health.backports, "enabled", lambda name=None, files=None: True)
+    f = next(x for x in health.report(st, light=True)["features"] if x["id"] == "files")
+    assert f["status"] == "unavailable"     # backports on, still no package: really not available

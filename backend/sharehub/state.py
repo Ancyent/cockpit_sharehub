@@ -75,6 +75,7 @@ DEFAULT_SETTINGS = {
         "quota": True,
         "snapshots": True,
         "versions": True,
+        "files": False,     # Cockpit Files: opt-in
     },
 }
 

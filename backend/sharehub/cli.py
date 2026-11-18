@@ -14,7 +14,7 @@ import os
 import re
 import sys
 
-from . import __version__, ad, ftp, health, jobs, migrate, paths, quota, reconcile, samba, services, snapshots, users
+from . import __version__, ad, backports, ftp, health, jobs, migrate, paths, quota, reconcile, samba, services, snapshots, users
 from . import features as featmod
 from . import state as statemod
 from .util import HelperError, have, nfs_server_support, read_text, run, wsdd_unit
@@ -153,7 +153,9 @@ def _browse_root(share, req):
 def cmd_versions_browse(req):
     _name, share = _share(req)
     root, hide = _browse_root(share, req)
-    return snapshots.browse(root, req.get("path"), req.get("offset"), req.get("limit"), req.get("query"), hide)
+    page = snapshots.browse(root, req.get("path"), req.get("offset"), req.get("limit"), req.get("query"), hide)
+    page["root"] = root   # absolute folder, e.g. to open it in Cockpit Files
+    return page
 
 
 def cmd_versions_search(req):
@@ -186,6 +188,20 @@ def cmd_versions_restore(req):
             return {"job": job, "warnings": []}
         restored = snapshots.restore_from_recycle(share["path"], rel)
     return {"restored": restored, "warnings": []}
+
+
+def cmd_install_preview(req):
+    """What installing a backports package would change, for the confirmation dialog."""
+    packages = [p for p in (req.get("packages") or []) if p in backports.PACKAGES]
+    if not packages:
+        return {"backports": False}
+    name = backports.suite()
+    if not name:
+        raise HelperError("Backports are only supported on Debian and Ubuntu.")
+    if not backports.enabled(name):
+        return {"backports": True, "suite": name, "enable": True, "distro": backports.distro(), "changes": []}
+    return {"backports": True, "suite": name, "enable": False, "distro": backports.distro(),
+            "changes": backports.preview(packages)}
 
 
 def cmd_jobs(_req):
@@ -225,6 +241,16 @@ def cmd_health(_req):
 
 
 def cmd_install_packages(req):
+    packages = req.get("packages") or []
+    if isinstance(packages, list) and set(packages) & backports.PACKAGES:
+        bad = [p for p in packages if p not in backports.PACKAGES]
+        if bad:
+            raise HelperError("Install backports packages on their own.")
+        if not backports.suite():
+            raise HelperError("Backports are only supported on Debian and Ubuntu.")
+        # in the background: apt may update Cockpit itself, which ends this session
+        job = jobs.start("install", "", " ".join(packages), {"packages": packages})
+        return {"job": job, "warnings": []}
     result = health.install(req)
     warnings = []
     bootstrap(quiet=True)
@@ -412,6 +438,7 @@ COMMANDS = {
     "versions-search": cmd_versions_search,
     "versions-history": cmd_versions_history,
     "jobs": cmd_jobs,
+    "install-preview": cmd_install_preview,
     "job-cancel": cmd_job_cancel,
     "features-set": cmd_features_set,
     "health": cmd_health,
@@ -446,7 +473,7 @@ COMMANDS = {
     "migrate-import": cmd_migrate_import,
 }
 READ_ONLY = {"status", "browse", "quota-check", "health", "versions-check", "versions-list", "versions-browse",
-             "versions-search", "versions-history", "jobs", "history", "ad-status", "ad-preflight", "services",
+             "versions-search", "versions-history", "jobs", "install-preview", "history", "ad-status", "ad-preflight", "services",
              "connections", "firewall-status", "migrate-detect"}
 
 

@@ -10,12 +10,12 @@
 #   sudo ./install.sh --minimal             same as --features smb
 #   sudo ./install.sh --dry-run ...         show what would be installed, change nothing
 #
-# Features: smb (always), nfs, ftp, mdns, wsdd, netbios, ad, recycle, quota, snapshots, versions.
+# Features: smb (always), nfs, ftp, mdns, wsdd, netbios, ad, recycle, quota, snapshots, versions, files.
 # They can be changed later in Cockpit: File Sharing → Settings → Features.
 set -euo pipefail
 
 cd "$(dirname "$0")"
-ALL=(nfs ftp mdns wsdd netbios ad recycle quota snapshots versions)
+ALL=(nfs ftp mdns wsdd netbios ad recycle quota snapshots versions files)
 declare -A ABOUT=(
     [nfs]="NFS server (Linux, VMware, Proxmox clients)"
     [ftp]="FTP / FTPS server (ProFTPD)"
@@ -27,6 +27,7 @@ declare -A ABOUT=(
     [quota]="Size limits per share"
     [snapshots]="Scheduled read-only versions (ZFS/Btrfs)"
     [versions]="Previous Versions from sanoid/zfs-auto-snapshot/snapper"
+    [files]="Web file manager in Cockpit (Cockpit Files, from backports)"
 )
 FEATURES=""
 DRY=0
@@ -123,8 +124,25 @@ if has quota || has snapshots; then
     grep -qx btrfs <<<"$fstypes" && packages+=(btrfs-progs)
 fi
 
+# Cockpit Files is only in <codename>-backports; install it as Cockpit's guide does
+# (https://cockpit-project.org/running.html): enable backports, then apt install -t <codename>-backports.
+. /etc/os-release
+bp_suite="${VERSION_CODENAME:-}-backports"
+bp_needed=0
+if has files; then
+    if [[ -z "${VERSION_CODENAME:-}" ]]; then
+        echo "Note: cannot find the release codename - Cockpit Files skipped." >&2
+    else
+        bp_needed=1
+    fi
+fi
+bp_enabled() {
+    grep -rhsE "^[^#]*(deb |Suites:).*[[:space:]]${bp_suite}([[:space:]]|$)" /etc/apt/sources.list /etc/apt/sources.list.d/ >/dev/null
+}
+
 echo "==> Features: $FEATURES"
 echo "==> Packages: ${packages[*]}"
+[[ $bp_needed -eq 1 ]] && echo "==> From $bp_suite: cockpit-files$(bp_enabled || echo " (backports will be enabled)")"
 if [[ $DRY -eq 1 ]]; then
     echo "(dry run - nothing installed)"
     exit 0
@@ -133,6 +151,18 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q "${packages[@]}"
+if [[ $bp_needed -eq 1 ]]; then
+    if ! bp_enabled; then
+        if [[ "$ID" == "debian" ]]; then
+            echo "deb http://deb.debian.org/debian ${bp_suite} main" > /etc/apt/sources.list.d/backports.list
+            apt-get update -q
+        else
+            echo "Note: $bp_suite is not enabled in the apt sources - Cockpit Files skipped." >&2
+            bp_needed=0
+        fi
+    fi
+    [[ $bp_needed -eq 1 ]] && apt-get install -y -q -t "$bp_suite" cockpit-files
+fi
 
 echo "==> Installing ShareHub"
 make install

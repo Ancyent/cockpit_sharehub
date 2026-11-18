@@ -5,7 +5,7 @@
 ```bash
 sudo apt install python3-pytest python3-pyflakes nodejs
 make lint    # pyflakes + JavaScript syntax + shell syntax
-make test    # 88 unit tests: validation, rendering, import parsing, features, versions at scale
+make test    # 94 unit tests: validation, rendering, import parsing, features, versions at scale, backports
 ```
 
 CI (`.github/workflows/ci.yml`) runs both on every push and builds the `.deb`. On a `v*` tag the package is attached to the GitHub release.
@@ -32,6 +32,7 @@ Environment: Ubuntu 24.04, Samba 4.19.5, ProFTPD 1.3.8b, nfs-utils 2.6.4, Cockpi
 | ProFTPD validation and rollback | enable TLS without `mod_tls` | Change refused with a clear message; previous config kept |
 | NFS exports | `exportfs -v` after apply | Options rendered as expected, including quoted paths and `all_squash` with anon IDs |
 | Validation | invalid names, paths, NFS hosts, sizes, ports | Rejected with clear messages |
+| Cockpit Files (0.15.0) | Ubuntu 24.04 with Cockpit 314 from main: Settings → Features → Install, then **Files** on a share; share user login | Preview listed Cockpit 362 and cockpit-files from noble-backports; job installed them; reload offered and **File browser** appeared in the menu; **Files** opened the share folder; a share user (nologin) is refused by Cockpit |
 | Recycle bin with several users (0.14.1) | `.recycle` created by `maria` with mode 2700 (as Samba did before), then deletes over SMB as `maria` and `ion` | Before: `ion`'s file deleted for good; dashboard flags the share; after **Fix**: `.recycle` is `root 1733`, `ion`'s next delete kept in `.recycle/ion`, still invisible over SMB |
 | Features (0.14.0) | `features-set` / `features-init` on a system with shares; share save with a feature off; UI in Cockpit | Turning off a used feature refused with the share list; share using an off feature refused; NFS tab, Active Directory page and toggles hidden when off |
 | Greyed-out states (0.14.0) | container marker set (simulated LXC) with ext4 and Btrfs shares; Cockpit UI, dark theme | NFS toggle and tab greyed with the reason; ext4 Size limit greyed with the Proxmox mount-point hint; Versions tab greyed on ext4, normal on the Btrfs subvolume; dashboard and editor agree |
@@ -68,6 +69,10 @@ These need real infrastructure. Run them before calling a deployment production-
 - [ ] Debian 13 LXC: Size limit greyed with the host hint; dashboard and editor agree; NFS hidden or greyed everywhere
 - [ ] Turn FTP off: `proftpd` stopped and disabled; turn it on again: running
 - [ ] Folder restore of a large folder on ZFS runs as `sharehub-job-*` (`systemctl list-units 'sharehub-job-*'`), Cancel works
+
+### Cockpit Files (0.15.0)
+- [ ] Debian 13: Install from the dashboard adds `backports.list`, installs from trixie-backports, Cockpit is not upgraded unless needed
+- [ ] Folder names with spaces and non-ASCII letters open correctly from **Files**
 
 ### Systemd / services
 - [ ] After installing the package: `systemctl status smbd nfs-server proftpd sharehub-recycle.timer`

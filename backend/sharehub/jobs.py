@@ -15,8 +15,8 @@ import sys
 import time
 import uuid
 
-from . import snapshots
-from .util import HelperError, atomic_write, has_systemd, read_text
+from . import backports, snapshots
+from .util import HelperError, atomic_write, has_systemd, read_text, run as run_cmd
 
 JOBS_DIR = "/run/sharehub/jobs"
 ID_RE = re.compile(r"^[0-9a-f]{12}$")
@@ -224,6 +224,35 @@ def restore_recycle_tree(share_path, rel, progress):
     return restored
 
 
+def install_backports(job, packages, progress):
+    """Enable backports if needed, then apt-get install -t <codename>-backports. Runs outside the
+    Cockpit session, so it finishes even when apt updates Cockpit and the page reconnects."""
+    suite = backports.suite()
+
+    def step(text):
+        job["step"] = text
+        progress.tick(force=True)
+
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    if not backports.enabled(suite):
+        step(f"Enabling {suite}…")
+        backports.enable()
+    step("Updating package lists…")
+    proc = run_cmd(["apt-get", "update", "-q"], check=False, env=env, timeout=900)
+    if proc.returncode != 0:
+        raise HelperError("apt-get update failed: " + (proc.stderr or proc.stdout).strip()[-500:])
+    step(f"Installing {' '.join(packages)} from {suite}…")
+    proc = run_cmd(["apt-get", "install", "-y", "-q", "-t", suite, "-o", "Dpkg::Options::=--force-confold", *packages],
+                   check=False, env=env, timeout=1800)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
+        if "Could not get lock" in detail or "is locked" in detail:
+            raise HelperError("Another package operation is running. Try again in a few minutes.")
+        raise HelperError("Installation failed: " + detail[-600:])
+    step("Installed.")
+    return packages
+
+
 def run(job_id):
     """Entry point of the worker process (sharehub-helper job-run <id>)."""
     job = load(job_id)
@@ -241,6 +270,8 @@ def run(job_id):
             os.makedirs(os.path.dirname(target), exist_ok=True)
             job["result"] = os.path.relpath(target, p["share_path"])
             copy_tree(source, target, progress)
+        elif job["kind"] == "install":
+            job["result"] = install_backports(job, p["packages"], progress)
         elif job["kind"] == "restore-recycle":
             source = os.path.join(snapshots.recycle_root(p["share_path"]), p["path"])
             job["total_files"], job["total_bytes"] = _count(source, progress)

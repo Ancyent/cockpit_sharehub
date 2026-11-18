@@ -6,6 +6,7 @@ import glob
 import os
 import re
 
+from . import backports
 from . import features as featmod
 from . import ftp, quota, samba, snapshots
 from .util import (HelperError, container_type, has_systemd, have, nfs_server_support, read_text, run,
@@ -16,7 +17,7 @@ INSTALLABLE = {
     "samba", "samba-common-bin", "smbclient", "nfs-kernel-server", "proftpd-core", "proftpd-basic",
     "proftpd-mod-crypto", "ssl-cert", "avahi-daemon", "wsdd-server", "wsdd2", "winbind", "libnss-winbind",
     "libpam-winbind", "krb5-user", "sanoid", "zfs-auto-snapshot", "snapper", "quota", "xfsprogs",
-    "btrfs-progs", "zfsutils-linux", "acl", "attr", "ufw",
+    "btrfs-progs", "zfsutils-linux", "acl", "attr", "ufw", "cockpit-files",
 }
 
 
@@ -147,6 +148,10 @@ def features(state):
          "services": ["winbind"], "in_use": uses["ad"]},
         {"id": "versions", "label": "Previous Versions (external snapshots)", "requires": [["sanoid", "zfs-auto-snapshot", "snapper"]],
          "services": [], "in_use": uses["versions"]},
+        {"id": "files", "label": "Web file manager (Cockpit Files)", "requires": [["cockpit-files"]],
+         "services": [], "in_use": False, "backports": True,
+         "note": "Cockpit's own file manager, for administrators: browse, upload, download and edit files after "
+                 "logging in to Cockpit. Nothing is exposed outside Cockpit."},
         {"id": "quota", "label": "Size limits", "fs": True, "services": [], "in_use": uses["quota"],
          "note": "Checked on the folders of your shares. Each filesystem needs its own tool: zfsutils-linux (ZFS), "
                  "xfsprogs (XFS), quota (ext4), btrfs-progs (Btrfs)."},
@@ -280,6 +285,16 @@ def report(state, light=False):
             checks = ev["checks"] + checks
         installed = all(g["satisfied"] for g in groups)
         unavailable = [g for g in groups if not g["satisfied"] and not any(p["candidate"] for p in g["packages"])]
+        from_backports = None
+        if f.get("backports") and not installed:
+            bp = backports.suite()
+            if bp and (not unavailable or not backports.enabled(bp)):
+                # installable from <codename>-backports (enabled by ShareHub on Debian, as Cockpit's guide does)
+                from_backports = bp
+                for g in groups:
+                    for p in g["packages"]:
+                        p["candidate"] = p["candidate"] or f"from {bp}"
+                unavailable = []
         unsupported = f["id"] == "nfs" and not nfs_ok
         running = all(sv["active"] in ("active", None) for sv in services if sv["installed"] is not False)
         checks_ok = all(c["ok"] for c in checks)
@@ -297,6 +312,10 @@ def report(state, light=False):
             reason = f.get("unavailable_hint") or "Not available in this system's package sources."
         elif not installed:
             status = "attention" if f["in_use"] or f.get("core") else "absent"
+            if from_backports:
+                reason = (f"Comes from {from_backports}, as in Cockpit's install guide"
+                          + ("" if backports.enabled(from_backports) else " (ShareHub enables it)")
+                          + ". apt may also update Cockpit to the version it needs.")
         elif f["in_use"] and (not running or not checks_ok):
             status = "attention"
         elif not checks_ok:
@@ -314,7 +333,7 @@ def report(state, light=False):
             "id": f["id"], "label": f["label"], "core": bool(f.get("core")), "in_use": f["in_use"],
             "note": f.get("note"), "status": status, "reason": reason, "packages": groups, "services": services,
             "checks": checks, "installable": [] if unsupported else [m for m in missing if m in INSTALLABLE],
-            "setup_needed": setup_needed,
+            "setup_needed": setup_needed, "from_backports": from_backports,
         })
     for item in out:
         item["availability"] = verdict(item)

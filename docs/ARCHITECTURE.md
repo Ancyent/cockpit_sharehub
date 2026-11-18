@@ -15,6 +15,7 @@ Browser ── Cockpit (cockpit-ws) ── cockpit-bridge ──(sudo)── /us
                                                                      ├─ snapshots.py  scheduled versions, retention, paged browse, search, history
                                                                      ├─ jobs.py       background folder restores with progress and cancel
                                                                      ├─ features.py   feature switches and the per-feature UI state
+                                                                     ├─ backports.py  packages only in <codename>-backports (Cockpit Files)
                                                                      ├─ users.py      users, groups, Samba passdb
                                                                      ├─ ad.py         Active Directory (winbind)
                                                                      ├─ services.py   systemd, sessions, firewall, discovery
@@ -110,6 +111,16 @@ install}` with `state` one of `off`, `impossible`, `needs_install`, `needs_setup
   are `impossible` with the host-side alternative; outside a container "no folder supports it" is `needs_setup`,
   because a share on suitable storage would work.
 
+## Cockpit Files (backports)
+
+`cockpit-files` is the only package installed from `<codename>-backports` (`backports.PACKAGES`). `install-preview`
+simulates `apt-get install -s -t <suite>` for the confirmation dialog. `install-packages` with it starts a job
+(`jobs.install_backports`): add the Debian backports line from Cockpit's guide if no active line names the suite,
+`apt-get update`, `apt-get install -t <suite> cockpit-files`. It runs outside the Cockpit session because apt may
+update Cockpit and end that session. The UI waits for the job, then offers to reload Cockpit (the shell reads its
+menu once per session). Links use `cockpit.jump("/files#/?path=" + encodeURIComponent(encodeURIComponent(path)))`:
+Cockpit Files decodes its `path` option once more than Cockpit does.
+
 ## Versions at scale
 
 - `versions-browse` lists one folder: `scandir`, filter by name, sort folders first, then `lstat` only the
@@ -128,7 +139,7 @@ install}` with `state` one of `off`, `impossible`, `needs_install`, `needs_setup
 
 | Group | Commands |
 |---|---|
-| Read-only | `status`, `browse`, `quota-check`, `health`, `versions-check`, `versions-list`, `versions-browse`, `versions-search`, `versions-history`, `jobs`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
+| Read-only | `status`, `browse`, `quota-check`, `health`, `versions-check`, `versions-list`, `versions-browse`, `versions-search`, `versions-history`, `jobs`, `install-preview`, `history`, `services`, `connections`, `firewall-status`, `ad-status`, `ad-preflight`, `migrate-detect` |
 | Changes | `features-set`, `versions-create`, `versions-restore`, `job-cancel`, `install-packages`, `health-fix`, `enable-registry`, `share-save`, `share-delete`, `settings-save`, `apply`, `history-restore`, `user-create`, `user-update`, `user-password`, `user-smb`, `group-create`, `group-update`, `group-delete`, `mkdir`, `ad-join`, `ad-leave`, `service-control`, `disconnect`, `firewall-open`, `migrate-import` |
 | Plain text | `bootstrap` (package setup), `recycle-cleanup` (daily timer), `snapshot-run` (15-minute timer), `check` (compatibility report), `features-init <list>` (install.sh), `job-run <id>` (background job worker), `--version` |
 

@@ -122,7 +122,42 @@ SH.FEATURES = [
     { id: "quota", label: "Size limits", about: "A maximum size per share, enforced by the filesystem." },
     { id: "snapshots", label: "Scheduled versions", about: "Read-only versions of a share every 15 minutes or hourly (ZFS or Btrfs).", stops: "sharehub-snapshot.timer" },
     { id: "versions", label: "Previous Versions from external snapshots", about: "Show snapshots made by sanoid, zfs-auto-snapshot or snapper in Windows." },
+    { id: "files", label: "Web file manager (Cockpit Files)", about: "Browse, upload, download and edit files on this server from Cockpit. For administrators: only reachable after logging in to Cockpit.", optIn: true },
 ];
+
+/* Open a folder in Cockpit Files (the app decodes its path option once more than Cockpit does). */
+SH.openInFiles = function (path) {
+    cockpit.jump("/files#/?path=" + encodeURIComponent(encodeURIComponent(path || "/")));
+};
+
+/* Wait for a background job; resolves with the finished job. Survives a dropped session
+ * (apt may update Cockpit itself) by reporting it instead of failing. */
+SH.waitJob = function (id, onUpdate) {
+    return new Promise((resolve, reject) => {
+        let misses = 0;
+        const tick = async () => {
+            try {
+                const job = (await SH.call("jobs")).jobs.find(j => j.id === id);
+                misses = 0;
+                if (job && onUpdate) onUpdate(job);
+                if (!job || ["done", "failed", "cancelled"].includes(job.state)) { resolve(job); return; }
+            } catch (e) {
+                if (++misses > 20) { reject(new Error("Lost contact with the server. Cockpit may have been updated: reload the page in a minute.")); return; }
+            }
+            setTimeout(tick, 1500);
+        };
+        tick();
+    });
+};
+
+/* Install packages without asking; backports packages run as a background job. */
+SH.runInstall = async function (packages, onStep) {
+    const data = await SH.call("install-packages", { packages });
+    if (!data.job) return data;
+    const job = await SH.waitJob(data.job.id, j => { if (onStep && j.step) onStep(j.step); });
+    if (!job || job.state !== "done") throw new Error((job && job.error) || "Installation did not finish.");
+    return { installed: packages, warnings: [] };
+};
 
 SH.feature = function (id) {
     const f = SH.store.status && SH.store.status.features && SH.store.status.features[id];
@@ -134,20 +169,48 @@ SH.featureReady = id => SH.feature(id).state === "ready";
 /* Install packages with a blocking progress dialog; resolves true on success. */
 SH.installPackages = async function (packages, label) {
     const list = packages.join(" ");
-    const ok = await SH.controls.confirm({ title: `Install ${label || list}`, message: [`ShareHub will run: apt-get install ${list}`, "This can take a few minutes. Keep this page open."], confirmLabel: "Install" });
-    if (!ok) return false;
-    const m = SH.controls.modal({ title: `Installing ${list}…`, body: SH.h("div", { class: "busy-box" }, SH.h("span", { class: "spinner", "aria-hidden": "true" }), SH.h("p", {}, "Downloading and installing packages. Do not close this page.")), actions: [], persistent: true });
+    let message = [`ShareHub will run: apt-get install ${list}`, "This can take a few minutes. Keep this page open."];
     try {
-        const data = await SH.call("install-packages", { packages });
+        const pre = await SH.call("install-preview", { packages });
+        if (pre.backports) {
+            const changes = pre.changes || [];
+            message = [
+                pre.enable ? `${list} comes from ${pre.suite}. ShareHub adds the ${pre.suite} line to the apt sources, as Cockpit's install guide does, and installs only what ${list} needs from it.`
+                    : `${list} comes from ${pre.suite}. Only what it needs is taken from there.`,
+                changes.length ? SH.h("ul", { class: "pkg-list mono small" }, changes.map(c => SH.h("li", {}, `${c.name} ${c.from ? c.from + " → " : ""}${c.to}`))) : null,
+                changes.some(c => /^cockpit/.test(c.name) && c.from && c.name !== "cockpit-files")
+                    ? "Cockpit itself is updated too. The page may reconnect during the installation; the installation continues on the server." : null,
+            ].filter(Boolean);
+        }
+    } catch (e) { message = [e.message]; }
+    const ok = await SH.controls.confirm({ title: `Install ${label || list}`, message, confirmLabel: "Install" });
+    if (!ok) return false;
+    const stepText = SH.h("p", {}, "Downloading and installing packages. Do not close this page.");
+    const m = SH.controls.modal({ title: `Installing ${list}…`, body: SH.h("div", { class: "busy-box" }, SH.h("span", { class: "spinner", "aria-hidden": "true" }), stepText), actions: [], persistent: true });
+    try {
+        const data = await SH.runInstall(packages, step => { stepText.textContent = step; });
         m.close();
         SH.report(data, `Installed ${list}.`);
         await SH.refresh().catch(() => {});
+        if (packages.includes("cockpit-files")) SH.offerReload();
         return true;
     } catch (e) {
         m.close();
         SH.toast(e.message, "danger");
         return false;
     }
+};
+
+/* Cockpit reads its menu once per session: a newly installed Cockpit page (Cockpit Files)
+ * appears after reloading the whole console. */
+SH.offerReload = async function () {
+    const ok = await SH.controls.confirm({
+        title: "Cockpit Files is installed",
+        message: ["Reload Cockpit to add \"File browser\" to the menu and to open folders from ShareHub.",
+            "If Cockpit itself was updated, you may have to log in again."],
+        confirmLabel: "Reload now",
+    });
+    if (ok) window.top.location.reload();
 };
 
 /* Open the Components dashboard with one feature expanded. */

@@ -79,7 +79,14 @@ sudo ./install.sh --minimal                         # Cockpit + Samba only
 sudo ./install.sh --dry-run --features smb,nfs      # show the packages, change nothing
 ```
 
-Features: `smb` (always), `nfs`, `ftp`, `mdns`, `wsdd`, `netbios`, `ad`, `recycle`, `quota`, `snapshots`, `versions`.
+Features: `smb` (always), `nfs`, `ftp`, `mdns`, `wsdd`, `netbios`, `ad`, `recycle`, `quota`, `snapshots`, `versions`, `files`.
+
+`files` installs **Cockpit Files** (web file manager for administrators, inside Cockpit only). Debian 13 and Ubuntu
+24.04 have it only in backports, so `install.sh` does what [Cockpit's install guide](https://cockpit-project.org/running.html)
+does: on Debian it adds `deb http://deb.debian.org/debian <codename>-backports main` to
+`/etc/apt/sources.list.d/backports.list` if no backports line exists (Ubuntu enables backports by default), then runs
+`apt-get install -t <codename>-backports cockpit-files`. Only Cockpit Files and what it needs come from backports; on
+Ubuntu 24.04 that includes a newer Cockpit.
 Without `--features`, a terminal shows a checklist; without a terminal, the defaults are used (everything except
 NetBIOS, Active Directory and external Previous Versions; NFS is skipped in containers). `install.sh` installs only
 the packages of the chosen features (tools for size limits only for filesystems that are mounted), runs

@@ -17,6 +17,7 @@ ShareHub adds a **File Sharing** page to [Cockpit](https://cockpit-project.org/)
 - **Active Directory.** A join wizard with prerequisite checks, winbind with `rid` or `ad` ID mapping, and domain users and groups in every access list.
 - **FTP done safely.** ProFTPD with every user jailed to the shares they are allowed to see. Each share appears as a bind mount. FTPS can be required.
 - **Only what you need.** A first-run setup and **Settings → Features** choose what ShareHub manages and installs. Features that are off disappear; features that cannot work on this system (for example NFS in a container) are greyed out everywhere with the reason and, when it helps, an Install button.
+- **Web file manager (optional).** Cockpit Files for administrators, inside Cockpit only: open any share with one click.
 - **Components dashboard.** Shows, for each feature, the packages, services and configuration it needs, highlights what is in use but broken, and installs, starts or fixes it in one click.
 - **Operations.** Service status, live SMB/NFS/FTP sessions (including disconnecting a session), firewall port helpers for ufw and firewalld, and a change history you can restore from.
 - **Safe changes.** Every change is validated (`testparm`, `exportfs`, `proftpd -t`) before it is kept. If anything fails, the previous configuration is put back.
@@ -70,6 +71,9 @@ From a source install, use `sudo ./uninstall.sh` or `sudo ./uninstall.sh --purge
    Btrfs: `sudo btrfs subvolume delete <share>/.sharehub-snapshots/sharehub_*`.
 3. Remove the SMB shares you no longer want: `sudo net conf listshares`, then `sudo net conf delshare <name>`.
 4. Look at the `.recycle` folder in each share: it holds deleted files. Delete it only if nobody needs them.
+
+If you installed the web file manager, remove it with `sudo apt remove cockpit-files`
+(and, on Debian, delete `/etc/apt/sources.list.d/backports.list` if nothing else uses backports).
 
 > Do not run `sudo apt autoremove` right after removing ShareHub unless you also want to remove Samba, ProFTPD,
 > the NFS server and the other packages that were installed for it - your shares would stop working.

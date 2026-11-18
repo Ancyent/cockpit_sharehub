@@ -25,6 +25,7 @@
         const next = C.button("Next", () => go(), "primary");
         const m = C.modal({ title: "Set up ShareHub", body, actions: [skip, back, next], size: "lg", persistent: true });
         let details = null;
+        let installedFiles = false;
 
         async function loadDetails() {
             if (details) return details;
@@ -53,7 +54,7 @@
             const items = SH.FEATURES.map(f => {
                 const s = stateOf(f.id);
                 const impossible = s.state === "impossible";
-                if (!(f.id in choices)) choices[f.id] = !impossible && (st.state.features.configured ? SH.featureOn(f.id) : f.id !== "netbios" && f.id !== "ad" && f.id !== "versions");
+                if (!(f.id in choices)) choices[f.id] = !impossible && (st.state.features.configured ? SH.featureOn(f.id) : !f.optIn && f.id !== "netbios" && f.id !== "ad" && f.id !== "versions");
                 const [kind, text] = STATE_TEXT[s.state] || STATE_TEXT.ready;
                 const cb = C.checkbox({ label: f.label, checked: choices[f.id], description: impossible ? s.reason : f.about, disabled: impossible,
                     onChange: v => { choices[f.id] = v; } });
@@ -82,6 +83,7 @@
                     ? h("div", {}, h("p", {}, "These packages will be installed:"), h("ul", { class: "pkg-list mono" }, pkgs.map(p => h("li", {}, p))),
                         h("p", { class: "muted small" }, "apt-get install runs on this server; it can take a few minutes."))
                     : h("p", {}, "Nothing to install: every chosen feature already has its packages."),
+                pkgs.includes("cockpit-files") ? C.alert("info", "Cockpit Files comes from backports.", "ShareHub enables backports the way Cockpit's install guide does and takes only what Cockpit Files needs from there; this may update Cockpit itself, and the page may reconnect.") : null,
                 setup.length ? C.alert("warning", "Some features need the storage prepared first.",
                     h("ul", { class: "pkg-list" }, setup.map(f => h("li", {}, h("strong", {}, f.label + ": "), stateOf(f.id).reason || "")))) : null);
         }
@@ -94,10 +96,15 @@
                 m.setBusy(true);
                 try {
                     if (pkgs.length) {
-                        body.replaceChildren(stepsBar(), h("div", { class: "busy-box" }, h("span", { class: "spinner", "aria-hidden": "true" }),
-                            h("p", {}, `Installing ${pkgs.join(" ")}… Keep this page open.`)));
-                        await SH.call("install-packages", { packages: pkgs });
+                        const text = h("p", {}, `Installing ${pkgs.join(" ")}… Keep this page open.`);
+                        body.replaceChildren(stepsBar(), h("div", { class: "busy-box" }, h("span", { class: "spinner", "aria-hidden": "true" }), text));
+                        // packages from backports (Cockpit Files) install on their own, in the background
+                        const later = pkgs.filter(p => p === "cockpit-files");
+                        const now = pkgs.filter(p => !later.includes(p));
+                        if (now.length) await SH.call("install-packages", { packages: now });
+                        if (later.length) await SH.runInstall(later, step => { text.textContent = step; });
                     }
+                    if (pkgs.includes("cockpit-files")) installedFiles = true;
                     await finish(choices, true);
                 } catch (e) {
                     m.setBusy(false);
@@ -129,6 +136,8 @@
             const warnings = ((data && data.warnings) || []).filter(w => !/^systemd is not running/.test(w));
             return h("div", { class: "form" }, stepsBar(),
                 h("p", {}, "ShareHub is ready. Next: create users and your first share."),
+                installedFiles ? C.alert("info", "Reload Cockpit to see Cockpit Files.", h("span", {}, "The \"File browser\" menu entry appears after a reload. ",
+                    C.button("Reload now", () => window.top.location.reload(), "link"))) : null,
                 warnings.length ? C.alert("warning", "Notes", warnings.join(" ")) : null,
                 h("table", { class: "tbl tbl-compact" }, h("tbody", {}, rows)),
                 h("p", { class: "muted small" }, "Overview → Components shows every dependency in detail."));

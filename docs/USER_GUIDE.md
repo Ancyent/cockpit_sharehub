@@ -28,6 +28,20 @@ Greyed-out controls keep their values. After **Install** the controls are enable
 
 > **Containers (LXC).** Inside a container the host owns the filesystems. Size limits on ext4/XFS and ZFS snapshots must be done on the host: on Proxmox give each share its own mount point with a size (`pct set <id> -mp0 <storage>:<size in GB>,mp=/share/<name>`); clients then see that size. NFS server is not possible in a container.
 
+## Web file manager (Cockpit Files)
+
+An optional feature (**Settings → Features → Web file manager**). Click **Install**: ShareHub shows what apt will
+install from backports (on Ubuntu 24.04 this includes a newer Cockpit), installs it in the background and offers to
+reload Cockpit, after which **File browser** is in the Cockpit menu.
+
+- **Files** on a share (Shares tab) opens its folder. In the versions dialog, **Open in Files** opens the folder you are
+  looking at (versions are read-only); the folder picker has the same button.
+- It is for administrators: it only exists inside Cockpit and uses the rights of the Cockpit session. With
+  *administrative access* on you see and change everything; without it only what your account may read.
+- Share users cannot log in to Cockpit (their accounts have no login shell), so they never see it. Accounts created with
+  *Allow shell login* can log in to Cockpit with their own rights.
+- Turning the feature off hides ShareHub's links; the package stays until you run `sudo apt remove cockpit-files`.
+
 ## Overview
 
 - **Setup alerts.** These cover the Samba registry, shares found from other tools, and ProFTPD configuration problems.

@@ -450,7 +450,8 @@
         const select = h("button", { type: "button", class: "btn btn-primary" }, "Use this folder");
         const cancel = h("button", { type: "button", class: "btn btn-secondary" }, "Cancel");
         const newBtn = h("button", { type: "button", class: "btn btn-link" }, "New folder…");
-        const m = C.modal({ title: "Choose a folder", body: h("div", {}, pathLabel, list, newBtn), actions: [cancel, select], size: "md" });
+        const filesBtn = SH.featureReady("files") ? C.button("Open in Files", () => SH.openInFiles(current), "link", { title: "Open this folder in Cockpit Files" }) : null;
+        const m = C.modal({ title: "Choose a folder", body: h("div", {}, pathLabel, list, h("div", { class: "row-gap" }, newBtn, filesBtn)), actions: [cancel, select], size: "md" });
         async function load(path) {
             try {
                 const data = await SH.call("browse", { path });

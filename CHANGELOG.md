@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.15.0 - 2026-11-18
+
+- **Web file manager (optional): Cockpit Files**, the Cockpit project's own file manager. For administrators only:
+  it is reachable only after logging in to Cockpit, adds no port, service, account or public link, and works with the
+  rights of the Cockpit session (everything with *administrative access*). Share users cannot use it: their accounts
+  have no login shell, and Cockpit refuses them
+- Off by default. Turn it on in the setup, under **Settings → Features** (new entry *Web file manager*) or with
+  `install.sh --features ...,files`. Debian 13 and Ubuntu 24.04 ship `cockpit-files` only in `<codename>-backports`:
+  ShareHub follows Cockpit's install guide (adds the Debian backports line when it is missing, installs with
+  `-t <codename>-backports`), shows beforehand exactly what apt will install or update, and takes nothing else from
+  backports. On Ubuntu 24.04 this also updates Cockpit itself (Cockpit Files needs Cockpit 318 or newer)
+- The installation runs as a background job, so it finishes even when apt updates Cockpit and the page reconnects;
+  afterwards ShareHub offers to reload Cockpit so **File browser** appears in the menu
+- **Files** in the shares list and **Open in Files** in the versions dialog (current folder, read-only for versions)
+  and in the folder picker open the folder in Cockpit Files
+- Components dashboard: new *Web file manager (Cockpit Files)* row
+
 ## 0.14.1 - 2026-11-18
 
 - **Fixed: deleted files lost for every user but one.** Samba's recycle module created `<share>/.recycle`

@@ -393,3 +393,4 @@ p { margin: 0 0 8px; }
 @keyframes sh-flash-row { 0% { background: var(--info-bg); } 100% { background: transparent; } }
 @media (prefers-reduced-motion: reduce) { .feature.focus-flash { animation: none; background: var(--info-bg); } }
 .feature-slot:empty { display: none; }
+.row-gap { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }

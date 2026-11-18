@@ -29,6 +29,13 @@
         const bar = h("div", { class: "progress" + (counting || job.state === "queued" ? " indeterminate" : ""), role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(pct), "aria-label": `Restore of ${job.label}` }, fill);
         const detail = counting ? "Counting files…"
             : job.total_files !== null ? `${job.files.toLocaleString()} of ${job.total_files.toLocaleString()} files · ${SH.bytes(job.bytes)} of ${SH.bytes(job.total_bytes)}` : "";
+        if (job.kind === "install") {
+            const active = job.state === "running" || job.state === "queued";
+            return h("div", { class: "job" },
+                h("div", { class: "job-head" }, h("span", { class: "strong" }, `Installing ${job.label}`), C.badge(active ? "Installing" : JOB_STATE[job.state][1], active ? "info" : JOB_STATE[job.state][0])),
+                active ? h("div", { class: "progress indeterminate" }, h("div", { class: "progress-fill" })) : null,
+                h("div", { class: "vb-status" }, job.state === "failed" ? job.error : job.step || ""));
+        }
         let result = null;
         if (job.state === "done") result = job.kind === "restore-snapshot" ? `Restored as "${job.result}".` : `${SH.plural(job.result || 0, "file")} put back.`;
         else if (job.state === "failed") result = job.error;
@@ -88,6 +95,7 @@
         let loading = false;
         let searchResult = null;
         let token = 0;
+        let root = null;
 
         const crumbs = h("div", { class: "crumbs" });
         const filter = h("input", { type: "text", class: "input search", placeholder: "Filter this folder…", "aria-label": "Filter this folder by name" });
@@ -185,6 +193,7 @@
                 const data = await SH.call("versions-browse", request({ offset: entries.length, limit: PAGE, query }));
                 if (my !== token) return;
                 entries = entries.concat(data.entries);
+                root = data.root;
                 total = data.total;
                 truncated = data.truncated;
                 draw();
@@ -212,8 +221,12 @@
         }
 
         drawCrumbs();
+        const filesBtn = SH.featureReady("files")
+            ? C.button("Open in Files", () => { if (root) SH.openInFiles(root.replace(/\/$/, "") + (path ? "/" + path : "")); }, "secondary",
+                { class: "btn btn-secondary btn-sm", title: "Open this folder in Cockpit Files (read-only for versions)" })
+            : null;
         return {
-            el: h("div", { class: "form" }, h("div", { class: "vb-toolbar" }, filter, searchBtn), crumbs, status, scroll),
+            el: h("div", { class: "form" }, h("div", { class: "vb-toolbar" }, filter, searchBtn, filesBtn), crumbs, status, scroll),
             reload: () => load(true),
             reset: () => openFolder(""),
         };

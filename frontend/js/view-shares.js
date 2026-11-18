@@ -88,6 +88,7 @@
                     h("td", { "data-label": "Size" }, usageCell(st, name, s)),
                     h("td", { "data-label": "Features" }, h("div", { class: "badges" }, features(s))),
                     h("td", { class: "col-actions" },
+                        SH.featureReady("files") ? C.button("Files", () => SH.openInFiles(s.path), "link", { "aria-label": `Open ${name} in Cockpit Files`, title: "Open the folder in Cockpit Files" }) : null,
                         s.versioning.snapshots || (s.smb.enabled && s.smb.recycle) ? C.button("Versions", () => SH.views.versions.open(name), "link", { "aria-label": `Versions of ${name}` }) : null,
                         C.button("Edit", () => editor(name, s), "link", { disabled: !canEdit, "aria-label": `Edit ${name}` }),
                         C.button("Delete", () => remove(name, s), "link", { class: "btn btn-link btn-danger-link", "aria-label": `Delete ${name}` })));

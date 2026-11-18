@@ -1,3 +1,14 @@
+cockpit-sharehub (0.15.0) unstable; urgency=medium
+
+  * Optional web file manager: Cockpit Files, installed from
+    <codename>-backports as in Cockpit's install guide, for administrators
+    inside Cockpit only.
+  * "Files" / "Open in Files" in the shares list, the versions dialog and
+    the folder picker.
+  * Installs that may update Cockpit run as a background job.
+
+ -- Andrei Prajina <ancyent@xserv.ro>  Wed, 18 Nov 2026 12:00:00 +0200
+
 cockpit-sharehub (0.14.1) unstable; urgency=high
 
   * Fix: files deleted over SMB by any user other than the first one were

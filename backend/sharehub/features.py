@@ -22,6 +22,7 @@ TOGGLES = {
     "quota": ("features", "quota"),
     "snapshots": ("features", "snapshots"),
     "versions": ("features", "versions"),
+    "files": ("features", "files"),
     "mdns": ("samba", "mdns"),
     "wsdd": ("samba", "wsdd"),
     "netbios": ("samba", "netbios"),
@@ -29,6 +30,7 @@ TOGGLES = {
 LABELS = {
     "nfs": "NFS server", "ftp": "FTP server", "ad": "Active Directory", "recycle": "Recycle bin",
     "quota": "Size limits", "snapshots": "Scheduled versions", "versions": "Previous Versions (external snapshots)",
+    "files": "Web file manager (Cockpit Files)",
     "mdns": "macOS discovery (Bonjour)", "wsdd": "Windows discovery (WS-Discovery)", "netbios": "NetBIOS name service",
 }
 # units ShareHub owns completely and starts/stops with the feature
