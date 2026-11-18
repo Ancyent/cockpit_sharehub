@@ -163,7 +163,19 @@ This removes:
 - the NFS exports and NFS settings;
 - `/etc/sharehub`.
 
-Samba registry shares are **kept**. Remove them with `net conf delshare <name>` if you no longer want them.
+**What stays after a purge** (on purpose, so no data is lost):
+
+| What | Where | How to remove it, if you want |
+|---|---|---|
+| SMB shares | Samba registry | `sudo net conf listshares`, then `sudo net conf delshare <name>` |
+| `include = registry` in `[global]` | `/etc/samba/smb.conf` (backup: `smb.conf.sharehub.bak`) | Remove the line, or restore the backup, if no registry shares are left |
+| Users, groups and Samba passwords | system accounts, Samba passdb | `sudo smbpasswd -x <user>`, `sudo deluser <user>` |
+| Size limits | ZFS `refquota`, XFS/ext4 project quotas, Btrfs qgroups | Clear **Size limit** on each share **before** uninstalling |
+| Scheduled versions | ZFS snapshots `@sharehub_*`, Btrfs `<share>/.sharehub-snapshots/` | Turn versions off first, then `sudo zfs destroy <dataset>@sharehub_…` or `sudo btrfs subvolume delete <share>/.sharehub-snapshots/sharehub_*` |
+| Deleted files | `<share>/.recycle/` | Delete the folder when nobody needs the files |
+| Packages (Samba, ProFTPD, NFS server, …) | apt | `sudo apt remove <package>`. Do not run `apt autoremove` blindly: it would remove Samba and stop the shares |
+
+**Reinstalling** after `apt remove` brings back the page with all settings. After a purge, ShareHub starts empty and offers to **Import** the SMB shares still in the Samba registry.
 
 ## 8. Troubleshooting
 

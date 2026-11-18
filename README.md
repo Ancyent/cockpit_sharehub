@@ -41,6 +41,42 @@ ShareHub adds a **File Sharing** page to [Cockpit](https://cockpit-project.org/)
 
 Full instructions, including installing from source, are in **[docs/INSTALL.md](docs/INSTALL.md)**.
 
+## Upgrade
+
+Install the newer package over the old one. There is no need to uninstall first; your configuration in
+`/etc/sharehub` is kept.
+
+```bash
+wget https://github.com/Ancyent/cockpit_sharehub/releases/download/v<version>/cockpit-sharehub_<version>_all.deb
+sudo apt install ./cockpit-sharehub_<version>_all.deb
+```
+
+Then reload the Cockpit page (Ctrl+F5).
+
+## Uninstall
+
+| Command | What it removes | What keeps working |
+|---|---|---|
+| `sudo apt remove cockpit-sharehub` | The Cockpit page, the helper and the ShareHub timers | Everything: shares, users, FTP, NFS and the configuration in `/etc/sharehub`. Reinstalling brings the page back as it was. |
+| `sudo apt purge cockpit-sharehub` | The above, plus what ShareHub generated: FTP bind mounts and their `/etc/fstab` lines, the ProFTPD include, NFS exports and settings, `/etc/sharehub` (state, history, size-limit IDs) | SMB shares (they live in the Samba registry), users and passwords, your files, versions (snapshots) and recycle bins |
+
+From a source install, use `sudo ./uninstall.sh` or `sudo ./uninstall.sh --purge` instead.
+
+**Before purging**, if you want nothing left behind:
+
+1. In ShareHub, clear the **Size limit** of every share and turn off **Keep scheduled versions** (Edit → Versions).
+   Limits are set in the filesystem and stay there otherwise.
+2. Delete versions you no longer need. ZFS: `zfs list -t snapshot -o name | grep @sharehub_`, then `sudo zfs destroy <name>`.
+   Btrfs: `sudo btrfs subvolume delete <share>/.sharehub-snapshots/sharehub_*`.
+3. Remove the SMB shares you no longer want: `sudo net conf listshares`, then `sudo net conf delshare <name>`.
+4. Look at the `.recycle` folder in each share: it holds deleted files. Delete it only if nobody needs them.
+
+> Do not run `sudo apt autoremove` right after removing ShareHub unless you also want to remove Samba, ProFTPD,
+> the NFS server and the other packages that were installed for it - your shares would stop working.
+> Users are not removed; delete them with `sudo smbpasswd -x <user>` and `sudo deluser <user>` if needed.
+
+Details are in [docs/INSTALL.md](docs/INSTALL.md#7-removing).
+
 ## Documentation
 
 | Document | Contents |
