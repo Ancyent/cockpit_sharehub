@@ -9,7 +9,7 @@ A Cockpit plugin that replaces the 45Drives *File Sharing* module and manages, f
 - shares with **SMB / NFS / FTP on the same folder**;
 - local users and groups with a **synchronised password** (system + Samba), plus per-user home folders;
 - **global Samba settings** with macOS and Windows profiles;
-- **Time Machine**, **recycle bin**, **Previous Versions** (ZFS/Btrfs snapshots);
+- **Time Machine**, **recycle bin**, **Previous Versions** (ZFS/Btrfs snapshots) and **scheduled read-only versions**;
 - **Active Directory** membership (winbind);
 - delivery as a versioned **.deb** package, later through an apt repository.
 
@@ -25,6 +25,9 @@ A Cockpit plugin that replaces the 45Drives *File Sharing* module and manages, f
 | 5 | Overview: services, live connections, firewall | **Done** (0.9.0) |
 | 6 | `.deb` package, CI, documentation | **Done**; signed apt repository pending |
 | 7 | Per-share size limits (ZFS, XFS, ext4, Btrfs) with usage in the UI | **Done** (0.10.0); Btrfs tested, ZFS/XFS/ext4 pending field test |
+| 8 | Components dashboard, compatibility report, containers (LXC) | **Done** (0.11.0-0.12.0); field-tested on Debian 13 LXC |
+| 9 | Versioning: scheduled read-only versions, protected recycle bin, restore dialog | **Done** (0.13.0); Btrfs tested, ZFS pending field test |
+| 10 | Feature choice (setup, Settings → Features, `install.sh --features`), greyed-out states, versions at scale | **Done** (0.14.0); recycle bin permission fix (0.14.1) |
 
 ## Towards 1.0
 
@@ -34,7 +37,8 @@ A Cockpit plugin that replaces the 45Drives *File Sharing* module and manages, f
 
 ## Later ideas
 
-- Snapshot scheduling from the UI (sanoid / snapper configuration).
+- Audit log per share (`vfs_full_audit`) with a viewer: who deleted or changed what.
+- Recycle bin for FTP deletes (today only SMB deletes are kept).
 - NFS with Kerberos (`sec=krb5p`) for AD-joined servers.
 - Per-share audit log (`vfs_full_audit`) with a viewer.
 - Translations (Cockpit `po` files).
@@ -46,6 +50,7 @@ A Cockpit plugin that replaces the 45Drives *File Sharing* module and manages, f
 |---|---|
 | Name | ShareHub (page title in Cockpit: "File Sharing") |
 | Target OS | Ubuntu 24.04 first; 22.04 and Debian 12 best effort |
-| Snapshots | Expose existing snapshots; scheduling is left to sanoid / zfs-auto-snapshot / snapper |
+| Snapshots | ShareHub schedules its own read-only versions (ZFS snapshots, Btrfs read-only subvolumes) and also exposes snapshots made by sanoid / zfs-auto-snapshot / snapper |
+| Features | Everything on by default (upgrades change nothing); the admin turns features off; unavailable features are greyed out, not hidden |
 | License | GPL-3.0-or-later; external contributions under the DCO (`Signed-off-by`) |
 | 45Drives module | Replaced; ShareHub imports its shares and exports |

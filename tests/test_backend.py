@@ -664,3 +664,47 @@ def test_restore_recycle_tree_never_overwrites(tmp_path):
     assert "notes.txt" in names and "budget.xlsx" in names and any(n.startswith("budget (restored") for n in names)
     assert (share / "plans" / "budget.xlsx").read_text() == "current"
     assert not (share / ".recycle" / "maria" / "plans").exists()
+
+
+# --------------------------------------------------------------------------- 0.14.1: recycle folder
+
+def test_recycle_root_is_open_to_every_user(tmp_path, monkeypatch):
+    from sharehub import samba
+    share = make_share(str(tmp_path))
+    rec = tmp_path / ".recycle"
+    rec.mkdir(mode=0o700)          # as vfs_recycle creates it for the first user
+    os.chmod(rec, 0o2700)
+    owners = []
+    monkeypatch.setattr(samba.os, "lchown", lambda p, u, g: owners.append((p, u, g)))
+    real_lstat = os.lstat
+    monkeypatch.setattr(samba.os, "lstat", lambda p: real_lstat(p))
+    warnings = []
+    share["smb"]["recycle_protect"] = True
+    samba.prepare_recycle(share, warnings)
+    assert warnings == []
+    assert oct(os.stat(rec).st_mode & 0o7777) == "0o1733"
+    share["smb"]["recycle_protect"] = False
+    samba.prepare_recycle(share, warnings)
+    assert oct(os.stat(rec).st_mode & 0o7777) == "0o1777"
+    if os.geteuid() != 0:
+        assert owners and owners[0][1:] == (0, 0)
+
+
+def test_recycle_root_problem_and_missing_folder(tmp_path):
+    from sharehub import samba
+    share = make_share(str(tmp_path))
+    assert samba.recycle_root_problem(share) is None          # not created yet: fine
+    rec = tmp_path / ".recycle"
+    rec.mkdir(mode=0o700)
+    problem = samba.recycle_root_problem(share)
+    assert problem and "other users cannot create" in problem
+    samba.prepare_recycle(share, [])
+    if os.geteuid() == 0:
+        assert samba.recycle_root_problem(share) is None
+    samba.prepare_recycle(dict(share, path=str(tmp_path / "x")), w := [])
+    assert w   # missing share folder reported, not raised
+
+
+def test_recycle_exclude_dir_uses_pipes():
+    from sharehub import samba
+    assert "," not in samba.RECYCLE_EXCLUDE_DIR and samba.RECYCLE_EXCLUDE_DIR.split("|") == [".recycle", "tmp", "temp"]

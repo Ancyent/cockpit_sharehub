@@ -1,3 +1,13 @@
+cockpit-sharehub (0.14.1) unstable; urgency=high
+
+  * Fix: files deleted over SMB by any user other than the first one were
+    deleted for good, because .recycle was created by that user with mode
+    0700. ShareHub now owns .recycle (root, mode 1733/1777) and repairs it.
+  * Fix: recycle:exclude_dir used commas instead of "|".
+  * Components dashboard: check and fix for the recycle folder permissions.
+
+ -- Andrei Prajina <ancyent@xserv.ro>  Wed, 18 Nov 2026 09:30:00 +0200
+
 cockpit-sharehub (0.14.0) unstable; urgency=medium
 
   * Features: choose what ShareHub manages (first-run setup, Settings →

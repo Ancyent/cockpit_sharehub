@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.1 - 2026-11-18
+
+- **Fixed: deleted files lost for every user but one.** Samba's recycle module created `<share>/.recycle`
+  as the first user who deleted something, with mode `0700`. Other users could not create their own
+  `.recycle/<user>` folder, and Samba then deleted their files for good. ShareHub now creates `.recycle`
+  itself, owned by root with mode `1733` (protected recycle bin: users cannot list it) or `1777` (visible
+  recycle bin), and repairs existing shares on the next save, on **Re-apply current configuration** or with
+  **Fix** in the Components dashboard. Files lost before the fix cannot be recovered from the recycle bin
+- Components dashboard: the Recycle bin row checks that every user can use the recycle bin
+- Fixed: `recycle:exclude_dir` used commas instead of `|`, so the `tmp` and `temp` folders were not excluded
+
 ## 0.14.0 - 2026-11-18
 
 - **Choose your features.** A first-run setup (on a fresh install, when no share exists yet) lets you pick NFS,

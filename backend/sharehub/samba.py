@@ -5,8 +5,10 @@ recycle bin, Previous Versions (shadow copies) and Windows ACLs."""
 import configparser
 import json
 import os
+import pwd
 import re
 import shutil
+import stat
 import tempfile
 
 from . import paths
@@ -31,6 +33,61 @@ MANAGED_GLOBAL = {
 MANAGED_GLOBAL_PREFIXES = ("idmap config ",)
 
 RECYCLE_EXCLUDE = "*.tmp|*.temp|~$*|*.~*|.DS_Store|._*|Thumbs.db"
+RECYCLE_EXCLUDE_DIR = ".recycle|tmp|temp"   # vfs_recycle separates patterns with "|"
+RECYCLE_DIR = ".recycle"
+
+
+def recycle_root_mode(protected):
+    """Mode of <share>/.recycle. Every user must be able to create .recycle/<user>, otherwise
+    vfs_recycle deletes the file for good. Sticky: nobody can remove another user's folder.
+    Protected: no listing (1733); visible to users: listing allowed (1777)."""
+    return 0o1733 if protected else 0o1777
+
+
+def recycle_root_problem(share):
+    """Why <share>/.recycle would make Samba delete files for good, or None."""
+    root = os.path.join(share["path"], RECYCLE_DIR)
+    try:
+        st = os.lstat(root)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        return str(e)
+    if not stat.S_ISDIR(st.st_mode):
+        return f"{root} is not a folder."
+    want = recycle_root_mode(share["smb"]["recycle_protect"])
+    if st.st_uid != 0 or stat.S_IMODE(st.st_mode) != want:
+        owner = pwd.getpwuid(st.st_uid).pw_name if _uid_exists(st.st_uid) else st.st_uid
+        return (f"{root} belongs to {owner} with mode {stat.S_IMODE(st.st_mode):o}: other users cannot create their "
+                "recycle folder, so their deleted files are lost.")
+    return None
+
+
+def _uid_exists(uid):
+    try:
+        pwd.getpwuid(uid)
+        return True
+    except KeyError:
+        return False
+
+
+def prepare_recycle(share, warnings):
+    """Create <share>/.recycle owned by root with the mode above (and repair an existing one)."""
+    root = os.path.join(share["path"], RECYCLE_DIR)
+    want = recycle_root_mode(share["smb"]["recycle_protect"])
+    try:
+        if not os.path.lexists(root):
+            os.mkdir(root, 0o700)
+        st = os.lstat(root)
+        if not stat.S_ISDIR(st.st_mode):
+            warnings.append(f"{root} is not a folder; the recycle bin cannot work until it is removed.")
+            return
+        if st.st_uid != 0 or st.st_gid != 0:
+            os.lchown(root, 0, 0)
+        if stat.S_IMODE(os.lstat(root).st_mode) != want:
+            os.chmod(root, want)
+    except OSError as e:
+        warnings.append(f"Could not prepare {root}: {e}")
 
 
 # --------------------------------------------------------------------------- parsing
@@ -267,7 +324,7 @@ def render_share(name, share, state, warnings):
             "recycle:touch_mtime": "yes",
             "recycle:directory_mode": "0700",
             "recycle:exclude": RECYCLE_EXCLUDE,
-            "recycle:exclude_dir": ".recycle,tmp,temp",
+            "recycle:exclude_dir": RECYCLE_EXCLUDE_DIR,
         })
         if smb["recycle_protect"]:
             # deleted files cannot be seen, changed or purged by clients; restore through ShareHub
@@ -392,6 +449,9 @@ def apply(state, warnings):
             run(["net", "conf", "delshare", existing], check=False)
             changed = True
     _set_owned(set(shares))
+    for share in state["shares"].values():
+        if share["smb"]["enabled"] and share["smb"]["recycle"] and os.path.isdir(share["path"]):
+            prepare_recycle(share, warnings)
     if changed:
         reload()
 

@@ -211,6 +211,12 @@ def _checks(fid, state):
             out.append({"label": f"{name}: recent version", "ok": fresh, "fix": None,
                         "detail": f"{len(snaps)} versions, latest {snaps[0]['time'].astimezone().strftime('%Y-%m-%d %H:%M')}"
                         if snaps else "No version yet - the timer runs every 15 minutes."})
+    if fid == "recycle":
+        bad = [(n, samba.recycle_root_problem(s)) for n, s in state["shares"].items()
+               if s["smb"]["enabled"] and s["smb"]["recycle"]]
+        bad = [(n, p) for n, p in bad if p]
+        out.append({"label": "Every user can use the recycle bin", "ok": not bad, "fix": "recycle-perms" if bad else None,
+                    "detail": " ".join(f"{n}: {p}" for n, p in bad) if bad else ".recycle folders are owned by root and open to every user."})
     if fid == "recycle" and has_systemd():
         active, _ = unit_state("sharehub-recycle.timer")
         out.append({"label": "Daily cleanup timer active", "ok": active == "active", "fix": None if active == "active" else "recycle-timer",
@@ -370,6 +376,11 @@ def fix(req, warnings):
         from .cli import bootstrap
         bootstrap(quiet=True)
         systemctl("reload-or-restart", "proftpd", warnings=warnings)
+    elif action == "recycle-perms":
+        from . import state as statemod
+        for share in statemod.load()["shares"].values():
+            if share["smb"]["enabled"] and share["smb"]["recycle"] and os.path.isdir(share["path"]):
+                samba.prepare_recycle(share, warnings)
     elif action == "recycle-timer":
         if not systemctl("enable", "--now", "sharehub-recycle.timer", warnings=warnings):
             raise HelperError(warnings[-1] if warnings else "Could not start the timer.")
